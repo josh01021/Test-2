@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vastgoed Dashboard Prototype</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Vastgoed<br><span>Dashboard</span></div>
+    <button class="nav active" data-page="dashboard">Dashboard</button>
+    <button class="nav" data-page="objecten">Objecten</button>
+    <button class="nav" data-page="contracten">Contracten</button>
+    <button class="nav" data-page="onderhoud">Onderhoud</button>
+    <button class="nav" data-page="meldingen">Meldingen</button>
+  </aside>
+
+  <main class="main">
+    <header>
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <p>Prototype op basis van het aangeleverde Excel-bestand. Peildatum: 1 juli 2026.</p>
+      </div>
+      <input id="search" placeholder="Zoek object, huurder of status...">
+    </header>
+
+    <section id="dashboard" class="page active">
+      <div class="cards">
+        <div class="card"><span>Totaal objecten</span><strong id="totalObjects"></strong></div>
+        <div class="card"><span>Jaarhuur excl.</span><strong id="totalRent"></strong></div>
+        <div class="card"><span>Urgente meldingen</span><strong id="urgentCount"></strong></div>
+        <div class="card"><span>Contracten &lt; 12 mnd</span><strong id="contractSoon"></strong></div>
+      </div>
+      <div class="panel">
+        <h2>Aandachtspunten</h2>
+        <div id="attentionList" class="alertList"></div>
+      </div>
+    </section>
+
+    <section id="objecten" class="page">
+      <div id="objectGrid" class="grid"></div>
+    </section>
+
+    <section id="contracten" class="page">
+      <div class="panel"><table id="contractTable"></table></div>
+    </section>
+
+    <section id="onderhoud" class="page">
+      <div class="panel"><table id="maintenanceTable"></table></div>
+    </section>
+
+    <section id="meldingen" class="page">
+      <div id="notificationList" class="alertList"></div>
+    </section>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
