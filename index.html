@@ -23,7 +23,6 @@
       <div class="brand">Vastgoed<br><span>Dashboard</span></div>
       <button class="nav active" data-page="dashboard">Dashboard</button>
       <button class="nav" data-page="objecten">Objecten</button>
-      <button class="nav" data-page="huurders">Huurders</button>
       <button class="nav" data-page="contracten">Contracten</button>
       <button class="nav" data-page="onderhoud">Onderhoud</button>
       <button class="nav" data-page="meldingen">Meldingen</button>
@@ -36,9 +35,6 @@
         <div class="headerActions">
           <input id="search" placeholder="Zoek object, huurder of status...">
           <button id="newPropertyBtn" type="button">+ Object</button>
-          <button id="newTenantBtn" type="button">+ Huurder</button>
-          <button id="newContractBtn" type="button">+ Contract</button>
-          <button id="newMaintenanceBtn" type="button">+ Onderhoud</button>
         </div>
       </header>
 
@@ -52,20 +48,68 @@
         <div class="panel"><h2>Aandachtspunten</h2><div id="attentionList" class="alertList"></div></div>
       </section>
       <section id="objecten" class="page"><div id="objectGrid" class="grid"></div></section>
-      <section id="huurders" class="page"><div class="panel"><table id="tenantTable"></table></div></section>
       <section id="contracten" class="page"><div class="panel"><table id="contractTable"></table></div></section>
       <section id="onderhoud" class="page"><div class="panel"><table id="maintenanceTable"></table></div></section>
       <section id="meldingen" class="page"><div id="notificationList" class="alertList"></div></section>
     </main>
   </section>
 
-  <div id="propertyModal" class="modal hidden"><div class="modalCard"><div class="modalHeader"><h2 id="modalTitle">Nieuw object</h2><button id="closePropertyModalBtn" class="iconBtn" type="button">×</button></div><form id="propertyForm"><input type="hidden" id="propertyId"><label>Objectnaam<input id="propertyName" required></label><label>Adres<input id="propertyAddress"></label><label>Huisnummer<input id="propertyHouseNumber"></label><label>Stad<input id="propertyCity"></label><label>Type pand<input id="propertyType"></label><label>Status<input id="propertyStatus" value="Actief"></label><label>Maandhuur<input id="propertyMonthlyRent" type="number" step="0.01"></label><label>Jaarhuur<input id="propertyYearlyRent" type="number" step="0.01"></label><label>Servicekosten<input id="propertyServiceCosts" type="number" step="0.01"></label><label>Waarborgsom<input id="propertyDeposit" type="number" step="0.01"></label><label>Energielabel<input id="propertyEnergyLabel"></label><label>Energielabel geldig tot<input id="propertyEnergyValidUntil" type="date"></label><label>Maand huurverhoging<input id="propertyRentIncreaseMonth"></label><label>Scope-inspectie geldig tot<input id="propertyScopeValidUntil" type="date"></label><div class="formActions"><button type="button" id="deletePropertyBtn" class="dangerBtn hidden">Verwijderen</button><button type="submit">Opslaan</button></div></form><p id="propertyMessage" class="formMessage"></p></div></div>
+  <div id="propertyModal" class="modal hidden">
+    <div class="modalCard wideModal">
+      <div class="modalHeader">
+        <h2 id="modalTitle">Nieuw object</h2>
+        <button id="closePropertyModalBtn" class="iconBtn" type="button">×</button>
+      </div>
+      <form id="propertyForm">
+        <input type="hidden" id="propertyId">
+        <input type="hidden" id="tenantId">
+        <input type="hidden" id="contractId">
+        <input type="hidden" id="maintenanceId">
 
-  <div id="tenantModal" class="modal hidden"><div class="modalCard"><div class="modalHeader"><h2 id="tenantModalTitle">Nieuwe huurder</h2><button id="closeTenantModalBtn" class="iconBtn" type="button">×</button></div><form id="tenantForm"><input type="hidden" id="tenantId"><label>Naam<input id="tenantName" required></label><label>E-mail<input id="tenantEmail" type="email"></label><label>Telefoon<input id="tenantPhone"></label><div class="formActions"><button type="button" id="deleteTenantBtn" class="dangerBtn hidden">Verwijderen</button><button type="submit">Opslaan</button></div></form><p id="tenantMessage" class="formMessage"></p></div></div>
+        <h3>Object</h3>
+        <label>Objectnaam<input id="propertyName" required></label>
+        <label>Adres<input id="propertyAddress"></label>
+        <label>Huisnummer<input id="propertyHouseNumber"></label>
+        <label>Stad<input id="propertyCity"></label>
+        <label>Type pand<input id="propertyType" placeholder="Woning, bedrijfspand, kantoor..."></label>
+        <label>Status<input id="propertyStatus" value="Actief"></label>
+        <label>Maandhuur<input id="propertyMonthlyRent" type="number" step="0.01"></label>
+        <label>Jaarhuur<input id="propertyYearlyRent" type="number" step="0.01"></label>
+        <label>Servicekosten<input id="propertyServiceCosts" type="number" step="0.01"></label>
+        <label>Waarborgsom<input id="propertyDeposit" type="number" step="0.01"></label>
+        <label>Energielabel<input id="propertyEnergyLabel"></label>
+        <label>Energielabel geldig tot<input id="propertyEnergyValidUntil" type="date"></label>
+        <label>Maand huurverhoging<input id="propertyRentIncreaseMonth"></label>
+        <label>Scope-inspectie geldig tot<input id="propertyScopeValidUntil" type="date"></label>
 
-  <div id="contractModal" class="modal hidden"><div class="modalCard"><div class="modalHeader"><h2 id="contractModalTitle">Nieuw contract</h2><button id="closeContractModalBtn" class="iconBtn" type="button">×</button></div><form id="contractForm"><input type="hidden" id="contractId"><label>Object<select id="contractProperty" required></select></label><label>Huurder<select id="contractTenant" required></select></label><label>Startdatum<input id="contractStart" type="date"></label><label>Einddatum<input id="contractEnd" type="date"></label><label>Opzegdatum<input id="contractNotice" type="date"></label><label>Maandhuur<input id="contractRent" type="number" step="0.01"></label><label>Status<input id="contractStatus" value="Actief"></label><div class="formActions"><button type="button" id="deleteContractBtn" class="dangerBtn hidden">Verwijderen</button><button type="submit">Opslaan</button></div></form><p id="contractMessage" class="formMessage"></p></div></div>
+        <h3>Huurder</h3>
+        <label>Naam huurder<input id="tenantName"></label>
+        <label>E-mail huurder<input id="tenantEmail" type="email"></label>
+        <label>Telefoon huurder<input id="tenantPhone"></label>
 
-  <div id="maintenanceModal" class="modal hidden"><div class="modalCard"><div class="modalHeader"><h2 id="maintenanceModalTitle">Nieuwe onderhoudstaak</h2><button id="closeMaintenanceModalBtn" class="iconBtn" type="button">×</button></div><form id="maintenanceForm"><input type="hidden" id="maintenanceId"><label>Object<select id="maintenanceProperty" required></select></label><label>Titel<input id="maintenanceTitle" required></label><label>Beschrijving<textarea id="maintenanceDescription"></textarea></label><label>Geplande datum<input id="maintenanceDate" type="date"></label><label>Kosten<input id="maintenanceCost" type="number" step="0.01"></label><label>Status<input id="maintenanceStatus" value="Open"></label><label>Prioriteit<input id="maintenancePriority" value="Normaal"></label><div class="formActions"><button type="button" id="deleteMaintenanceBtn" class="dangerBtn hidden">Verwijderen</button><button type="submit">Opslaan</button></div></form><p id="maintenanceMessage" class="formMessage"></p></div></div>
+        <h3>Contract</h3>
+        <label>Startdatum contract<input id="contractStart" type="date"></label>
+        <label>Einddatum contract<input id="contractEnd" type="date"></label>
+        <label>Opzegdatum<input id="contractNotice" type="date"></label>
+        <label>Contract maandhuur<input id="contractRent" type="number" step="0.01"></label>
+        <label>Contractstatus<input id="contractStatus" value="Actief"></label>
+
+        <h3>Onderhoud</h3>
+        <label>Onderhoudstitel<input id="maintenanceTitle" placeholder="Bijv. Scope-inspectie"></label>
+        <label>Onderhoudsomschrijving<textarea id="maintenanceDescription"></textarea></label>
+        <label>Geplande datum<input id="maintenanceDate" type="date"></label>
+        <label>Kosten<input id="maintenanceCost" type="number" step="0.01"></label>
+        <label>Onderhoudsstatus<input id="maintenanceStatus" value="Open"></label>
+        <label>Prioriteit<input id="maintenancePriority" value="Normaal"></label>
+
+        <div class="formActions">
+          <button type="button" id="deletePropertyBtn" class="dangerBtn hidden">Object verwijderen</button>
+          <button type="submit">Alles opslaan</button>
+        </div>
+      </form>
+      <p id="propertyMessage" class="formMessage"></p>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
