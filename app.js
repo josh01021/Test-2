@@ -9,6 +9,10 @@ const el = id => document.getElementById(id);
 
 function daysUntil(dateString){ if(!dateString) return null; const d=new Date(dateString); if(Number.isNaN(d.getTime())) return null; const t=new Date(); t.setHours(0,0,0,0); d.setHours(0,0,0,0); return Math.ceil((d-t)/(1000*60*60*24)); }
 function getDateStatus(dateString, warningDays=365, dangerDays=90){ const days=daysUntil(dateString); if(days===null) return ['Controle nodig','warning']; if(days<0) return ['Verlopen','danger']; if(days<=dangerDays) return [`Binnen ${dangerDays} dagen`,'danger']; if(days<=warningDays) return [`Binnen ${warningDays} dagen`,'warning']; return ['Op orde','ok']; }
+const monthMap={januari:0,februari:1,maart:2,april:3,mei:4,juni:5,juli:6,augustus:7,september:8,oktober:9,november:10,december:11};
+function daysUntilRentIncrease(monthName){ if(!monthName) return null; const key=String(monthName).trim().toLowerCase(); if(!(key in monthMap)) return null; const today=new Date(); today.setHours(0,0,0,0); let target=new Date(today.getFullYear(), monthMap[key], 1); if(target<today) target=new Date(today.getFullYear()+1, monthMap[key], 1); return Math.ceil((target-today)/(1000*60*60*24)); }
+function rentIncreaseStatus(monthName){ const days=daysUntilRentIncrease(monthName); if(days===null) return ['Niet ingesteld','warning']; if(days<=30) return ['Deze maand/komende 30 dagen','danger']; if(days<=60) return ['Binnen 60 dagen','warning']; return ['Op orde','ok']; }
+function actionItem(sev,type,title,text,objectId){ return {sev,type,title,text,objectId}; }
 function setPage(pageId, title){ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); el(pageId).classList.add('active'); document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active', n.dataset.page===pageId)); el('pageTitle').textContent=title || pageId; }
 
 function normalize(properties, contracts, tenants, maintenance){
@@ -25,7 +29,7 @@ function normalize(properties, contracts, tenants, maintenance){
     const contractEnd=contract.end_date || p.end_date;
     const noticeDate=contract.notice_date || p.notice_date;
     const scopeDate=p.scope_valid_until || plannedMaintenance.planned_date;
-    return {id:p.id, property:p, contract, tenant, maintenance:plannedMaintenance, object:objectName, straatnaam:p.address||'', huisnummer:p.house_number||'', stad:p.city||'', type:p.property_type||'-', status:p.status||'-', huurder:tenant.name||p.tenant_name||'-', email:tenant.email||p.email||'', telefoon:tenant.phone||p.phone||'', huur_pm:rentPm, huur_pj:rentPj, servicekosten:p.service_costs||0, waarborgsom:p.deposit||0, energielabel:p.energy_label||'-', energielabel_geldig_tot:p.energy_label_valid_until||'', maand_huurverhoging:p.rent_increase_month||'', einddatum_contract:contractEnd, startdatum_contract:contract.start_date||'', opzegdatum:noticeDate, scope_inspectie_geldig_tot:scopeDate, onderhoud_titel:plannedMaintenance.title||'Scope-inspectie', onderhoud_status:plannedMaintenance.status||'-', onderhoud_kosten:plannedMaintenance.cost||0, onderhoud_prioriteit:plannedMaintenance.priority||'-', onderhoud_omschrijving:plannedMaintenance.description||'', status_contract:getDateStatus(contractEnd,365,90), status_opzeg:getDateStatus(noticeDate,365,90), status_scope:getDateStatus(scopeDate,365,90), status_energy:getDateStatus(p.energy_label_valid_until,180,60)};
+    return {id:p.id, property:p, contract, tenant, maintenance:plannedMaintenance, object:objectName, straatnaam:p.address||'', huisnummer:p.house_number||'', stad:p.city||'', type:p.property_type||'-', status:p.status||'-', huurder:tenant.name||p.tenant_name||'-', email:tenant.email||p.email||'', telefoon:tenant.phone||p.phone||'', huur_pm:rentPm, huur_pj:rentPj, servicekosten:p.service_costs||0, waarborgsom:p.deposit||0, energielabel:p.energy_label||'-', energielabel_geldig_tot:p.energy_label_valid_until||'', maand_huurverhoging:p.rent_increase_month||'', einddatum_contract:contractEnd, startdatum_contract:contract.start_date||'', opzegdatum:noticeDate, scope_inspectie_geldig_tot:scopeDate, onderhoud_titel:plannedMaintenance.title||'Scope-inspectie', onderhoud_status:plannedMaintenance.status||'-', onderhoud_kosten:plannedMaintenance.cost||0, onderhoud_prioriteit:plannedMaintenance.priority||'-', onderhoud_omschrijving:plannedMaintenance.description||'', status_contract:getDateStatus(contractEnd,365,90), status_opzeg:getDateStatus(noticeDate,365,90), status_scope:getDateStatus(scopeDate,365,90), status_energy:getDateStatus(p.energy_label_valid_until,180,60), status_rent_increase:rentIncreaseStatus(p.rent_increase_month)};
   });
 }
 function showLogin(){ el('loginView').classList.remove('hidden'); el('appView').classList.add('hidden'); }
@@ -42,13 +46,65 @@ async function loadData(){
   }catch(error){ console.error(error); el('statusText').textContent='Kan data niet laden.'; el('attentionList').innerHTML=`<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`; }
 }
 function filtered(){ return vastgoedData.filter(r=>JSON.stringify(r).toLowerCase().includes(query.toLowerCase())); }
-function notificationItems(data){ const items=[]; data.forEach(r=>{ if(r.status_opzeg[1]!=='ok') items.push({sev:r.status_opzeg[1],title:`Opzegdatum: ${r.object}`,text:`Opzegdatum ${dateFmt(r.opzegdatum)}. Contract eindigt op ${dateFmt(r.einddatum_contract)}.`}); if(r.status_contract[1]!=='ok') items.push({sev:r.status_contract[1],title:`Contract: ${r.object}`,text:`Contractstatus: ${r.status_contract[0]}. Einddatum ${dateFmt(r.einddatum_contract)}.`}); if(r.status_scope[1]!=='ok') items.push({sev:r.status_scope[1],title:`Onderhoud/inspectie: ${r.object}`,text:`Datum: ${dateFmt(r.scope_inspectie_geldig_tot)}.`}); if(r.status_energy[1]!=='ok') items.push({sev:r.status_energy[1],title:`Energielabel: ${r.object}`,text:`Geldig tot ${dateFmt(r.energielabel_geldig_tot)}.`}); }); return items; }
+function notificationItems(data){
+  const items=[];
+  data.forEach(r=>{
+    const contractDays=daysUntil(r.einddatum_contract);
+    const noticeDays=daysUntil(r.opzegdatum);
+    const maintenanceDays=daysUntil(r.scope_inspectie_geldig_tot);
+    const energyDays=daysUntil(r.energielabel_geldig_tot);
+    const rentIncreaseDays=daysUntilRentIncrease(r.maand_huurverhoging);
+    const isVacant=String(r.status||'').toLowerCase().includes('leeg') || String(r.huurder||'').trim()==='-';
+
+    if(isVacant) items.push(actionItem('danger','Leegstand',`Geen huurder: ${r.object}`,'Controleer of dit object leegstaat of koppel een huurder.',r.id));
+    if(!r.contract || !r.contract.id) items.push(actionItem('warning','Contract',`Geen contract gekoppeld: ${r.object}`,'Voeg een contract toe zodat einddatum en opzegdatum bewaakt worden.',r.id));
+
+    if(contractDays!==null){
+      if(contractDays<0) items.push(actionItem('danger','Contract',`Contract verlopen: ${r.object}`,`Einddatum was ${dateFmt(r.einddatum_contract)}.`,r.id));
+      else if(contractDays<=90) items.push(actionItem('danger','Contract',`Contract verloopt binnen ${contractDays} dagen`,`${r.object} eindigt op ${dateFmt(r.einddatum_contract)}.`,r.id));
+      else if(contractDays<=365) items.push(actionItem('warning','Contract',`Contract verloopt binnen 12 maanden`,`${r.object} eindigt op ${dateFmt(r.einddatum_contract)}.`,r.id));
+    }
+
+    if(noticeDays!==null){
+      if(noticeDays<0) items.push(actionItem('danger','Opzegdatum',`Opzegdatum verlopen: ${r.object}`,`Opzegdatum was ${dateFmt(r.opzegdatum)}.`,r.id));
+      else if(noticeDays<=90) items.push(actionItem('danger','Opzegdatum',`Opzegdatum binnen ${noticeDays} dagen`,`${r.object}: opzegdatum ${dateFmt(r.opzegdatum)}.`,r.id));
+      else if(noticeDays<=365) items.push(actionItem('warning','Opzegdatum',`Opzegdatum binnen 12 maanden`,`${r.object}: opzegdatum ${dateFmt(r.opzegdatum)}.`,r.id));
+    }
+
+    if(maintenanceDays!==null){
+      if(maintenanceDays<0) items.push(actionItem('danger','Onderhoud',`Onderhoud/inspectie verlopen: ${r.object}`,`Datum was ${dateFmt(r.scope_inspectie_geldig_tot)}.`,r.id));
+      else if(maintenanceDays<=30) items.push(actionItem('danger','Onderhoud',`Onderhoud binnen ${maintenanceDays} dagen`,`${r.object}: ${r.onderhoud_titel} op ${dateFmt(r.scope_inspectie_geldig_tot)}.`,r.id));
+      else if(maintenanceDays<=90) items.push(actionItem('warning','Onderhoud',`Onderhoud binnen 90 dagen`,`${r.object}: ${r.onderhoud_titel} op ${dateFmt(r.scope_inspectie_geldig_tot)}.`,r.id));
+    }
+
+    if(energyDays!==null){
+      if(energyDays<0) items.push(actionItem('danger','Energielabel',`Energielabel verlopen: ${r.object}`,`Geldig tot ${dateFmt(r.energielabel_geldig_tot)}.`,r.id));
+      else if(energyDays<=60) items.push(actionItem('danger','Energielabel',`Energielabel binnen ${energyDays} dagen`,`${r.object}: geldig tot ${dateFmt(r.energielabel_geldig_tot)}.`,r.id));
+      else if(energyDays<=180) items.push(actionItem('warning','Energielabel',`Energielabel binnen 180 dagen`,`${r.object}: geldig tot ${dateFmt(r.energielabel_geldig_tot)}.`,r.id));
+    }
+
+    if(rentIncreaseDays!==null){
+      if(rentIncreaseDays<=30) items.push(actionItem('danger','Huurverhoging',`Huurverhoging deze maand: ${r.object}`,`Maand huurverhoging: ${r.maand_huurverhoging}.`,r.id));
+      else if(rentIncreaseDays<=60) items.push(actionItem('warning','Huurverhoging',`Huurverhoging binnen 60 dagen`,`${r.object}: maand ${r.maand_huurverhoging}.`,r.id));
+    }
+  });
+  const score={danger:0,warning:1,ok:2};
+  return items.sort((a,b)=>(score[a.sev]??9)-(score[b.sev]??9));
+}
+function actionHtml(n){ return `<div class="alert ${n.sev}"><strong><span class="typeTag">${n.type}</span> ${n.title}</strong><span>${n.text}</span>${n.objectId?`<button class="miniLink detailBtn" data-id="${n.objectId}">Bekijk object</button>`:''}</div>`; }
 function render(){
   const data=filtered(), notes=notificationItems(data);
-  el('totalObjects').textContent=data.length; el('totalMonthlyRent').textContent=euro(data.reduce((a,b)=>a+Number(b.huur_pm||0),0)); el('totalRent').textContent=euro(data.reduce((a,b)=>a+Number(b.huur_pj||0),0)); el('urgentCount').textContent=notes.filter(n=>n.sev==='danger').length; el('contractSoon').textContent=data.filter(r=>r.status_contract[1]!=='ok').length;
-  el('attentionList').innerHTML=notes.slice(0,7).map(n=>`<div class="alert ${n.sev}"><strong>${n.title}</strong>${n.text}</div>`).join('') || '<p>Geen aandachtspunten gevonden.</p>';
-  el('notificationList').innerHTML=notes.map(n=>`<div class="alert ${n.sev}"><strong>${n.title}</strong>${n.text}</div>`).join('') || '<p>Geen meldingen gevonden.</p>';
-  el('objectGrid').innerHTML=data.map(r=>`<article class="objectCard"><h3>${r.object}</h3><div class="meta">${r.straatnaam} ${r.huisnummer} ${r.stad}</div><div class="row"><span>Huurder</span><strong>${r.huurder}</strong></div><div class="row"><span>Huur p/m</span><strong>${euro(r.huur_pm)}</strong></div><div class="row"><span>Jaarhuur</span><strong>${euro(r.huur_pj)}</strong></div><div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div><button class="smallBtn detailBtn" data-id="${r.id}">Details</button><button class="smallBtn editBtn" data-id="${r.id}">Bewerken</button></article>`).join('') || '<p>Geen objecten gevonden.</p>';
+  el('totalObjects').textContent=data.length;
+  el('totalMonthlyRent').textContent=euro(data.reduce((a,b)=>a+Number(b.huur_pm||0),0));
+  el('totalRent').textContent=euro(data.reduce((a,b)=>a+Number(b.huur_pj||0),0));
+  el('urgentCount').textContent=notes.filter(n=>n.sev==='danger').length;
+  el('contractSoon').textContent=data.filter(r=>{const d=daysUntil(r.einddatum_contract); return d!==null && d<=365;}).length;
+  if(el('maintenanceSoon')) el('maintenanceSoon').textContent=data.filter(r=>{const d=daysUntil(r.scope_inspectie_geldig_tot); return d!==null && d<=90;}).length;
+  if(el('energySoon')) el('energySoon').textContent=data.filter(r=>{const d=daysUntil(r.energielabel_geldig_tot); return d!==null && d<=180;}).length;
+  if(el('vacancyCount')) el('vacancyCount').textContent=data.filter(r=>String(r.status||'').toLowerCase().includes('leeg') || r.huurder==='-').length;
+  el('attentionList').innerHTML=notes.slice(0,10).map(actionHtml).join('') || '<p>Geen aandachtspunten gevonden.</p>';
+  el('notificationList').innerHTML=notes.map(actionHtml).join('') || '<p>Geen meldingen gevonden.</p>';
+  el('objectGrid').innerHTML=data.map(r=>`<article class="objectCard"><h3>${r.object}</h3><div class="meta">${r.straatnaam} ${r.huisnummer} ${r.stad}</div><div class="row"><span>Huurder</span><strong>${r.huurder}</strong></div><div class="row"><span>Huur p/m</span><strong>${euro(r.huur_pm)}</strong></div><div class="row"><span>Jaarhuur</span><strong>${euro(r.huur_pj)}</strong></div><div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div><div class="row"><span>Onderhoud</span>${statusBadge(r.status_scope)}</div><button class="smallBtn detailBtn" data-id="${r.id}">Details</button><button class="smallBtn editBtn" data-id="${r.id}">Bewerken</button></article>`).join('') || '<p>Geen objecten gevonden.</p>';
   el('contractTable').innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Huur p/m</th><th>Startdatum</th><th>Einddatum</th><th>Opzegdatum</th><th>Status</th></tr>`+data.map(r=>`<tr><td>${r.object}</td><td>${r.huurder}</td><td>${euro(r.huur_pm)}</td><td>${dateFmt(r.startdatum_contract)}</td><td>${dateFmt(r.einddatum_contract)}</td><td>${dateFmt(r.opzegdatum)}</td><td>${statusBadge(r.status_contract)}</td></tr>`).join('');
   el('maintenanceTable').innerHTML=`<tr><th>Object</th><th>Type</th><th>Datum</th><th>Kosten</th><th>Status</th><th>Prioriteit</th></tr>`+data.map(r=>`<tr><td>${r.object}</td><td>${r.onderhoud_titel}</td><td>${dateFmt(r.scope_inspectie_geldig_tot)}</td><td>${euro(r.onderhoud_kosten)}</td><td>${statusBadge(r.status_scope)}</td><td>${r.onderhoud_prioriteit}</td></tr>`).join('');
 }
