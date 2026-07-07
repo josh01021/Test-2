@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vastgoed Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="loginView" class="loginView">
+    <div class="loginCard">
+      <h1>Vastgoed Dashboard</h1>
+      <p>Log in om je vastgoeddata te bekijken.</p>
+      <input id="email" type="email" placeholder="E-mailadres">
+      <input id="password" type="password" placeholder="Wachtwoord">
+      <button id="loginBtn">Inloggen</button>
+      <p id="loginError" class="errorText"></p>
+    </div>
+  </section>
+
+  <section id="appView" class="appView hidden">
+    <aside class="sidebar">
+      <div class="brand">Vastgoed<br><span>Dashboard</span></div>
+      <button class="nav active" data-page="dashboard">Dashboard</button>
+      <button class="nav" data-page="objecten">Objecten</button>
+      <button class="nav" data-page="contracten">Contracten</button>
+      <button class="nav" data-page="onderhoud">Onderhoud</button>
+      <button class="nav" data-page="meldingen">Meldingen</button>
+      <button id="logoutBtn" class="logoutBtn">Uitloggen</button>
+    </aside>
+
+    <main class="main">
+      <header>
+        <div>
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="statusText">Data wordt geladen...</p>
+        </div>
+        <div class="headerActions">
+          <input id="search" placeholder="Zoek object, huurder of status...">
+          <button id="newPropertyBtn">+ Nieuw object</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="page active">
+        <div class="cards">
+          <div class="card"><span>Totaal objecten</span><strong id="totalObjects">-</strong></div>
+          <div class="card"><span>Jaarhuur excl.</span><strong id="totalRent">-</strong></div>
+          <div class="card"><span>Urgente meldingen</span><strong id="urgentCount">-</strong></div>
+          <div class="card"><span>Contracten &lt; 12 mnd</span><strong id="contractSoon">-</strong></div>
+        </div>
+        <div class="panel">
+          <h2>Aandachtspunten</h2>
+          <div id="attentionList" class="alertList"></div>
+        </div>
+      </section>
+
+      <section id="objecten" class="page">
+        <div id="objectGrid" class="grid"></div>
+      </section>
+
+      <section id="contracten" class="page">
+        <div class="panel"><table id="contractTable"></table></div>
+      </section>
+
+      <section id="onderhoud" class="page">
+        <div class="panel"><table id="maintenanceTable"></table></div>
+      </section>
+
+      <section id="meldingen" class="page">
+        <div id="notificationList" class="alertList"></div>
+      </section>
+    </main>
+  </section>
+
+  <div id="propertyModal" class="modal hidden">
+    <div class="modalCard">
+      <div class="modalHeader">
+        <h2 id="modalTitle">Nieuw object</h2>
+        <button id="closeModalBtn" class="iconBtn">×</button>
+      </div>
+      <form id="propertyForm">
+        <input type="hidden" id="propertyId">
+        <label>Objectnaam<input id="propertyName" required></label>
+        <label>Adres<input id="propertyAddress"></label>
+        <label>Huisnummer<input id="propertyHouseNumber"></label>
+        <label>Stad<input id="propertyCity"></label>
+        <label>Type pand<input id="propertyType" placeholder="Woning, winkel, kantoor..."></label>
+        <label>Status<input id="propertyStatus" value="Actief"></label>
+        <label>Maandhuur<input id="propertyMonthlyRent" type="number" step="0.01"></label>
+        <label>Jaarhuur<input id="propertyYearlyRent" type="number" step="0.01"></label>
+        <label>Servicekosten<input id="propertyServiceCosts" type="number" step="0.01"></label>
+        <label>Waarborgsom<input id="propertyDeposit" type="number" step="0.01"></label>
+        <label>Energielabel<input id="propertyEnergyLabel"></label>
+        <label>Energielabel geldig tot<input id="propertyEnergyValidUntil" type="date"></label>
+        <label>Maand huurverhoging<input id="propertyRentIncreaseMonth"></label>
+        <label>Scope-inspectie geldig tot<input id="propertyScopeValidUntil" type="date"></label>
+        <div class="formActions">
+          <button type="button" id="deletePropertyBtn" class="dangerBtn hidden">Verwijderen</button>
+          <button type="submit">Opslaan</button>
+        </div>
+      </form>
+      <p id="formMessage" class="formMessage"></p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
+</body>
+</html>
