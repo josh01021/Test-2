@@ -166,7 +166,7 @@ function render() {
     <div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div>
     <div class="row"><span>Opzegdatum</span>${statusBadge(r.status_opzeg)}</div>
     <div class="row"><span>Onderhoud/inspectie</span>${statusBadge(r.status_scope)}</div>
-    <button class="smallBtn" onclick="openEditProperty('${r.id}')">Bewerken</button>
+    <button class="smallBtn editPropertyBtn" type="button" data-id="${r.id}">Bewerken</button>
   </article>`).join('') || '<p>Geen objecten gevonden.</p>';
 
   el('contractTable').innerHTML = `<tr><th>Object</th><th>Huurder</th><th>Huur p/m</th><th>Einddatum</th><th>Opzegdatum</th><th>Status</th></tr>` + data.map(r => `<tr><td>${r.object}</td><td>${r.huurder}</td><td>${euro(r.huur_pm)}</td><td>${dateFmt(r.einddatum_contract)}</td><td>${dateFmt(r.opzegdatum)}</td><td>${statusBadge(r.status_contract)}</td></tr>`).join('');
@@ -190,13 +190,13 @@ function setMessage(message, type = '') {
   el('propertyMessage').className = `formMessage ${type}`;
 }
 
-function openNewProperty() {
+window.openNewProperty = function openNewProperty() {
   el('modalTitle').textContent = 'Nieuw object';
   fillFormDefaults();
   el('propertyModal').classList.remove('hidden');
 }
 
-window.openEditProperty = function(id) {
+window.openEditProperty = function openEditProperty(id) {
   const p = rawProperties.find(x => x.id === id);
   const r = vastgoedData.find(x => x.id === id);
   if (!p || !r) return;
@@ -384,8 +384,18 @@ function init() {
   el('password').addEventListener('keydown', e => { if (e.key === 'Enter') el('loginBtn').click(); });
   el('logoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); vastgoedData = []; showLogin(); });
   el('search').addEventListener('input', e => { query = e.target.value; render(); });
-  el('newPropertyBtn').addEventListener('click', openNewProperty);
-  el('closePropertyModalBtn').addEventListener('click', closeModal);
+
+  // Robuuste knop-afhandeling: werkt ook nadat objectkaarten opnieuw gerenderd zijn.
+  document.addEventListener('click', e => {
+    const editBtn = e.target.closest('.editPropertyBtn');
+    if (editBtn) {
+      e.preventDefault();
+      window.openEditProperty(editBtn.dataset.id);
+    }
+  });
+
+  el('newPropertyBtn').addEventListener('click', e => { e.preventDefault(); window.openNewProperty(); });
+  el('closePropertyModalBtn').addEventListener('click', e => { e.preventDefault(); closeModal(); });
   el('propertyForm').addEventListener('submit', saveCombined);
   el('deletePropertyBtn').addEventListener('click', deleteProperty);
 
