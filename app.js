@@ -1,7 +1,8 @@
 const SUPABASE_URL = 'https://oplujvnyutmxfpdewezb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_dd1dOvBAwPgA1AeqNOQHDg_Wdjvf-ze';
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
+console.log('Supabase geladen:', !!window.supabase);
+console.log('App.js actief');
 const euro = n => new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(Number(n || 0));
 const dateFmt = s => s ? new Date(s).toLocaleDateString('nl-NL') : '-';
 const statusBadge = st => `<span class="badge ${st[1]}">${st[0]}</span>`;
