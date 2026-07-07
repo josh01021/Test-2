@@ -5,24 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vastgoed Dashboard</title>
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <style>
-    .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#f7f4ee}.login-card{width:100%;max-width:420px;background:#fff;border-radius:22px;padding:28px;box-shadow:0 20px 60px rgba(15,23,42,.12)}.login-card h1{margin:0 0 8px;font-size:34px}.login-card p{color:#64748b;margin-bottom:20px}.login-card input{width:100%;box-sizing:border-box;margin:8px 0 14px;padding:15px;border:1px solid #dbe3ef;border-radius:14px;font-size:16px}.login-card button,.logout-btn{border:0;border-radius:14px;padding:14px 18px;font-weight:700;cursor:pointer}.login-card button{width:100%;background:#1f2937;color:#fff}.logout-btn{background:#eee6d5;color:#1f2937}.error-text{color:#b91c1c;margin-top:12px}.app-hidden{display:none!important}.top-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.user-email{color:#64748b;font-size:14px}
-  </style>
 </head>
 <body>
-  <section id="loginScreen" class="login-screen">
-    <form id="loginForm" class="login-card">
-      <h1>Vastgoed Dashboard</h1>
-      <p>Log in om het dashboard te bekijken.</p>
-      <input id="loginEmail" type="email" placeholder="E-mailadres" required>
-      <input id="loginPassword" type="password" placeholder="Wachtwoord" required>
-      <button type="submit">Inloggen</button>
-      <div id="loginError" class="error-text"></div>
-    </form>
+  <section id="loginScreen" class="loginScreen">
+    <div class="loginCard">
+      <div class="brand loginBrand">Vastgoed<br><span>Dashboard</span></div>
+      <h1>Inloggen</h1>
+      <p>Log in met je Supabase-gebruiker.</p>
+      <label>E-mailadres</label>
+      <input id="loginEmail" type="email" autocomplete="email" placeholder="jouw@email.nl">
+      <label>Wachtwoord</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Wachtwoord">
+      <button id="loginButton" class="primaryButton">Inloggen</button>
+      <p id="loginError" class="loginError"></p>
+    </div>
   </section>
 
-  <div id="appShell" class="app-hidden">
+  <div id="appShell" class="appShell hidden">
     <aside class="sidebar">
       <div class="brand">Vastgoed<br><span>Dashboard</span></div>
       <button class="nav active" data-page="dashboard">Dashboard</button>
@@ -30,6 +29,7 @@
       <button class="nav" data-page="contracten">Contracten</button>
       <button class="nav" data-page="onderhoud">Onderhoud</button>
       <button class="nav" data-page="meldingen">Meldingen</button>
+      <button id="logoutButton" class="logoutButton">Uitloggen</button>
     </aside>
 
     <main class="main">
@@ -38,11 +38,7 @@
           <h1 id="pageTitle">Dashboard</h1>
           <p id="statusText">Verbonden met Supabase. Data wordt geladen...</p>
         </div>
-        <div class="top-actions">
-          <span id="userEmail" class="user-email"></span>
-          <button id="logoutBtn" class="logout-btn">Uitloggen</button>
-          <input id="search" placeholder="Zoek object, huurder of status...">
-        </div>
+        <input id="search" placeholder="Zoek object, huurder of status...">
       </header>
 
       <section id="dashboard" class="page active">

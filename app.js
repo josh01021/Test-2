@@ -1,27 +1,95 @@
 // Supabase instellingen
+// Gebruik alleen de publishable/anon key. Nooit de service_role key.
 const SUPABASE_URL = 'https://oplujvnyutmxfpdewezb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_dd1dOvBAwPgA1AeqNOQHDg_Wdjvf-ze';
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const AUTH_STORAGE_KEY = 'vastgoed_auth_session_v1';
 
 const euro = n => new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(Number(n || 0));
 const dateFmt = s => s ? new Date(s).toLocaleDateString('nl-NL') : '-';
 const statusBadge = st => `<span class="badge ${st[1]}">${st[0]}</span>`;
+
 let query = '';
 let vastgoedData = [];
+let authSession = getStoredSession();
 
-const loginScreen = document.getElementById('loginScreen');
-const appShell = document.getElementById('appShell');
-const loginForm = document.getElementById('loginForm');
-const loginError = document.getElementById('loginError');
-const logoutBtn = document.getElementById('logoutBtn');
-const userEmail = document.getElementById('userEmail');
 const pages = document.querySelectorAll('.page');
 const navs = document.querySelectorAll('.nav');
 
-async function supabaseSelect(table) {
-  const { data, error } = await db.from(table).select('*');
-  if (error) throw new Error(`${table}: ${error.message}`);
-  return data || [];
+function getStoredSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(session) {
+  authSession = session;
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearSession() {
+  authSession = null;
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+function getAccessToken() {
+  return authSession?.access_token || '';
+}
+
+async function signIn(email, password) {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ email, password })
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error_description || data.msg || data.error || 'Inloggen mislukt.');
+  }
+  saveSession(data);
+  return data;
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('appShell').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+async function supabaseSelect(table, select='*') {
+  const token = getAccessToken();
+  if (!token) throw new Error('Niet ingelogd.');
+
+  const url = `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}`;
+  const response = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (response.status === 401) {
+    clearSession();
+    showLogin();
+    throw new Error('Sessie verlopen. Log opnieuw in.');
+  }
+
+  if (!response.ok) {
+    const msg = await response.text();
+    throw new Error(`${table}: ${response.status} ${msg}`);
+  }
+  return response.json();
 }
 
 function daysUntil(dateString) {
@@ -110,7 +178,7 @@ async function loadData() {
     render();
   } catch (error) {
     console.error(error);
-    statusText.textContent = 'Kan Supabase-data niet laden. Controleer RLS-instellingen.';
+    statusText.textContent = 'Kan Supabase-data niet laden. Controleer login en RLS-instellingen.';
     document.getElementById('attentionList').innerHTML = `<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`;
   }
 }
@@ -143,37 +211,6 @@ function render(){
   document.getElementById('maintenanceTable').innerHTML=`<tr><th>Object</th><th>Type</th><th>Datum</th><th>Status</th><th>Actie</th></tr>`+data.map(r=>`<tr><td>${r.object}</td><td>${r.onderhoud_titel}</td><td>${dateFmt(r.scope_inspectie_geldig_tot)}</td><td>${statusBadge(r.status_scope)}</td><td>Plan controle / inspectie</td></tr>`).join('');
 }
 
-function showApp(session){
-  loginScreen.classList.add('app-hidden');
-  appShell.classList.remove('app-hidden');
-  userEmail.textContent = session?.user?.email || '';
-  loadData();
-}
-
-function showLogin(){
-  appShell.classList.add('app-hidden');
-  loginScreen.classList.remove('app-hidden');
-}
-
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  loginError.textContent = '';
-  const email = document.getElementById('loginEmail').value;
-  const password = document.getElementById('loginPassword').value;
-  const { data, error } = await db.auth.signInWithPassword({ email, password });
-  if (error) {
-    loginError.textContent = 'Inloggen mislukt. Controleer e-mail en wachtwoord.';
-    return;
-  }
-  showApp(data.session);
-});
-
-logoutBtn.addEventListener('click', async () => {
-  await db.auth.signOut();
-  vastgoedData = [];
-  showLogin();
-});
-
 navs.forEach(btn=>btn.addEventListener('click',()=>{
   navs.forEach(n=>n.classList.remove('active'));
   btn.classList.add('active');
@@ -184,8 +221,34 @@ navs.forEach(btn=>btn.addEventListener('click',()=>{
 
 document.getElementById('search').addEventListener('input', e=>{query=e.target.value;render();});
 
-(async function init(){
-  const { data } = await db.auth.getSession();
-  if (data.session) showApp(data.session);
-  else showLogin();
-})();
+document.getElementById('loginButton').addEventListener('click', async () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const loginError = document.getElementById('loginError');
+  loginError.textContent = '';
+
+  try {
+    await signIn(email, password);
+    showApp();
+    await loadData();
+  } catch (error) {
+    loginError.textContent = error.message;
+  }
+});
+
+document.getElementById('loginPassword').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') document.getElementById('loginButton').click();
+});
+
+document.getElementById('logoutButton').addEventListener('click', () => {
+  clearSession();
+  vastgoedData = [];
+  showLogin();
+});
+
+if (getAccessToken()) {
+  showApp();
+  loadData();
+} else {
+  showLogin();
+}
