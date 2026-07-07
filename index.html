@@ -9,11 +9,11 @@
 <body>
   <section id="loginView" class="loginView">
     <div class="loginCard">
-      <h1>Vastgoed Dashboard</h1>
+      <h1>Vastgoed<br><span>Dashboard</span></h1>
       <p>Log in om je vastgoeddata te bekijken.</p>
-      <input id="email" type="email" placeholder="E-mailadres">
-      <input id="password" type="password" placeholder="Wachtwoord">
-      <button id="loginBtn">Inloggen</button>
+      <input id="email" type="email" placeholder="E-mailadres" autocomplete="email">
+      <input id="password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
+      <button id="loginBtn" type="button">Inloggen</button>
       <p id="loginError" class="errorText"></p>
     </div>
   </section>
@@ -37,7 +37,7 @@
         </div>
         <div class="headerActions">
           <input id="search" placeholder="Zoek object, huurder of status...">
-          <button id="newPropertyBtn">+ Nieuw object</button>
+          <button id="newPropertyBtn" type="button">+ Nieuw object</button>
         </div>
       </header>
 
@@ -48,43 +48,25 @@
           <div class="card"><span>Urgente meldingen</span><strong id="urgentCount">-</strong></div>
           <div class="card"><span>Contracten &lt; 12 mnd</span><strong id="contractSoon">-</strong></div>
         </div>
-        <div class="panel">
-          <h2>Aandachtspunten</h2>
-          <div id="attentionList" class="alertList"></div>
-        </div>
+        <div class="panel"><h2>Aandachtspunten</h2><div id="attentionList" class="alertList"></div></div>
       </section>
-
-      <section id="objecten" class="page">
-        <div id="objectGrid" class="grid"></div>
-      </section>
-
-      <section id="contracten" class="page">
-        <div class="panel"><table id="contractTable"></table></div>
-      </section>
-
-      <section id="onderhoud" class="page">
-        <div class="panel"><table id="maintenanceTable"></table></div>
-      </section>
-
-      <section id="meldingen" class="page">
-        <div id="notificationList" class="alertList"></div>
-      </section>
+      <section id="objecten" class="page"><div id="objectGrid" class="grid"></div></section>
+      <section id="contracten" class="page"><div class="panel"><table id="contractTable"></table></div></section>
+      <section id="onderhoud" class="page"><div class="panel"><table id="maintenanceTable"></table></div></section>
+      <section id="meldingen" class="page"><div id="notificationList" class="alertList"></div></section>
     </main>
   </section>
 
   <div id="propertyModal" class="modal hidden">
     <div class="modalCard">
-      <div class="modalHeader">
-        <h2 id="modalTitle">Nieuw object</h2>
-        <button id="closeModalBtn" class="iconBtn">×</button>
-      </div>
+      <div class="modalHeader"><h2 id="modalTitle">Nieuw object</h2><button id="closeModalBtn" class="iconBtn" type="button">×</button></div>
       <form id="propertyForm">
         <input type="hidden" id="propertyId">
         <label>Objectnaam<input id="propertyName" required></label>
         <label>Adres<input id="propertyAddress"></label>
         <label>Huisnummer<input id="propertyHouseNumber"></label>
         <label>Stad<input id="propertyCity"></label>
-        <label>Type pand<input id="propertyType" placeholder="Woning, winkel, kantoor..."></label>
+        <label>Type pand<input id="propertyType"></label>
         <label>Status<input id="propertyStatus" value="Actief"></label>
         <label>Maandhuur<input id="propertyMonthlyRent" type="number" step="0.01"></label>
         <label>Jaarhuur<input id="propertyYearlyRent" type="number" step="0.01"></label>
@@ -94,10 +76,7 @@
         <label>Energielabel geldig tot<input id="propertyEnergyValidUntil" type="date"></label>
         <label>Maand huurverhoging<input id="propertyRentIncreaseMonth"></label>
         <label>Scope-inspectie geldig tot<input id="propertyScopeValidUntil" type="date"></label>
-        <div class="formActions">
-          <button type="button" id="deletePropertyBtn" class="dangerBtn hidden">Verwijderen</button>
-          <button type="submit">Opslaan</button>
-        </div>
+        <div class="formActions"><button type="button" id="deletePropertyBtn" class="dangerBtn hidden">Verwijderen</button><button type="submit">Opslaan</button></div>
       </form>
       <p id="formMessage" class="formMessage"></p>
     </div>
