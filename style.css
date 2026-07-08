@@ -14,3 +14,6 @@
 .maintenanceObjectHeader{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:12px}
 .maintenanceObjectHeader h3{margin:0 0 6px}.maintenanceObjectTable{margin-top:12px}.maintenanceObjectTable td:last-child{white-space:nowrap}.maintenanceObjectCard .row{max-width:360px}
 @media(max-width:900px){.maintenanceObjectHeader{display:block}.maintenanceObjectHeader .detailActions{margin-top:10px}.maintenanceObjectTable{font-size:13px;display:block;overflow-x:auto}}
+
+.maintenanceFiltersWide{grid-template-columns:repeat(3,minmax(180px,320px));}
+@media(max-width:900px){.maintenanceFiltersWide{grid-template-columns:1fr;}}

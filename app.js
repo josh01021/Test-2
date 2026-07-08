@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://oplujvnyutmxfpdewezb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_dd1dOvBAwPgA1AeqNOQHDg_Wdjvf-ze';
 
-let sb, query = '', maintenanceTypeFilter = '', maintenanceStatusFilter = '', vastgoedData = [], rawProperties = [], rawContracts = [], rawTenants = [], rawMaintenance = [], rawDocuments = [], rawMaintenanceHistory = [], selectedPropertyId = null;
+let sb, query = '', maintenanceTypeFilter = '', maintenanceStatusFilter = '', maintenanceObjectFilter = '', vastgoedData = [], rawProperties = [], rawContracts = [], rawTenants = [], rawMaintenance = [], rawDocuments = [], rawMaintenanceHistory = [], selectedPropertyId = null;
 const euro = n => new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(Number(n || 0));
 const dateFmt = s => s ? new Date(s).toLocaleDateString('nl-NL') : '-';
 const statusBadge = st => `<span class="badge ${st[1]}">${st[0]}</span>`;
@@ -233,6 +233,10 @@ function renderMaintenanceOverview(data){
   const rowsAll=allRows.filter(r=>{
     const hay=JSON.stringify(r).toLowerCase();
     if(query && !hay.includes(query.toLowerCase())) return false;
+    if(maintenanceObjectFilter){
+      const objectKey = r.objectId || r.object;
+      if(objectKey !== maintenanceObjectFilter) return false;
+    }
     if(maintenanceTypeFilter && r.type!==maintenanceTypeFilter) return false;
     if(maintenanceStatusFilter && norm(r.status)!==norm(maintenanceStatusFilter)) return false;
     return true;
@@ -241,9 +245,12 @@ function renderMaintenanceOverview(data){
   const upcoming90=rowsAll.filter(r=>{const d=daysUntil(r.planned_date); return d!==null && d>=0 && d<=90;}).length;
   const open=rowsAll.filter(r=>!['afgerond','gereed'].some(x=>norm(r.status).includes(x))).length;
   const totalCost=rowsAll.reduce((a,b)=>a+Number(b.cost||0),0);
+  const objectOptionsMap={};
+  allRows.forEach(r=>{ const key=r.objectId || r.object; if(key) objectOptionsMap[key]=r.object; });
+  const objects=Object.entries(objectOptionsMap).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
   const types=[...new Set(allRows.map(r=>r.type).filter(Boolean))].sort();
   const statuses=[...new Set(allRows.map(r=>r.status).filter(Boolean))].sort();
-  const filterHtml=`<div class="maintenanceFilters"><label>Type<select id="maintenanceTypeFilter"><option value="">Alle types</option>${types.map(t=>`<option ${maintenanceTypeFilter===t?'selected':''}>${t}</option>`).join('')}</select></label><label>Status<select id="maintenanceStatusFilter"><option value="">Alle statussen</option>${statuses.map(st=>`<option ${maintenanceStatusFilter===st?'selected':''}>${st}</option>`).join('')}</select></label></div>`;
+  const filterHtml=`<div class="maintenanceFilters maintenanceFiltersWide"><label>Object<select id="maintenanceObjectFilter"><option value="">Alle objecten</option>${objects.map(([key,name])=>`<option value="${escAttr(key)}" ${maintenanceObjectFilter===key?'selected':''}>${name}</option>`).join('')}</select></label><label>Type<select id="maintenanceTypeFilter"><option value="">Alle types</option>${types.map(t=>`<option ${maintenanceTypeFilter===t?'selected':''}>${t}</option>`).join('')}</select></label><label>Status<select id="maintenanceStatusFilter"><option value="">Alle statussen</option>${statuses.map(st=>`<option ${maintenanceStatusFilter===st?'selected':''}>${st}</option>`).join('')}</select></label></div>`;
   const summaryHtml=`<div class="cards maintenanceCards"><div class="card"><span>Totaal regels</span><strong>${rowsAll.length}</strong></div><div class="card"><span>Komende 90 dagen</span><strong>${upcoming90}</strong></div><div class="card"><span>Verlopen</span><strong>${overdue}</strong></div><div class="card"><span>Open</span><strong>${open}</strong></div><div class="card"><span>Totale kosten</span><strong>${euro(totalCost)}</strong></div></div>`;
   const grouped={};
   rowsAll.forEach(r=>{ const key=r.objectId || r.object; (grouped[key] ||= {objectId:r.objectId, object:r.object, address:r.address, rows:[]}).rows.push(r); });
@@ -447,7 +454,7 @@ function init(){
   el('password').addEventListener('keydown', e=>{ if(e.key==='Enter') el('loginBtn').click(); });
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; showLogin(); });
   el('search').addEventListener('input', e=>{ query=e.target.value; render(); });
-  document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
+  document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); } if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
   el('newPropertyBtn').addEventListener('click', openNewProperty); el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }
