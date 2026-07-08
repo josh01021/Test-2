@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://oplujvnyutmxfpdewezb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_dd1dOvBAwPgA1AeqNOQHDg_Wdjvf-ze';
 
-let sb, query = '', vastgoedData = [], rawProperties = [], rawContracts = [], rawTenants = [], rawMaintenance = [], rawDocuments = [], selectedPropertyId = null;
+let sb, query = '', vastgoedData = [], rawProperties = [], rawContracts = [], rawTenants = [], rawMaintenance = [], rawDocuments = [], rawMaintenanceHistory = [], selectedPropertyId = null;
 const euro = n => new Intl.NumberFormat('nl-NL', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(Number(n || 0));
 const dateFmt = s => s ? new Date(s).toLocaleDateString('nl-NL') : '-';
 const statusBadge = st => `<span class="badge ${st[1]}">${st[0]}</span>`;
@@ -47,11 +47,15 @@ function rentIncreaseStatus(monthName){ const days=daysUntilRentIncrease(monthNa
 function actionItem(sev,type,title,text,objectId){ return {sev,type,title,text,objectId}; }
 function setPage(pageId, title){ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); el(pageId).classList.add('active'); document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active', n.dataset.page===pageId)); el('pageTitle').textContent=title || pageId; }
 
-function normalize(properties, contracts, tenants, maintenance, documents=[]){
+function normalize(properties, contracts, tenants, maintenance, documents=[], history=[]){
   const tenantById=Object.fromEntries(tenants.map(t=>[t.id,t]));
   const contractsByProperty={}; contracts.forEach(c=>{(contractsByProperty[c.property_id] ||= []).push(c)});
   const maintenanceByProperty={}; maintenance.forEach(m=>{(maintenanceByProperty[m.property_id] ||= []).push(m)});
   const documentsByProperty={}; documents.forEach(d=>{(documentsByProperty[d.property_id] ||= []).push(d)});
+  const historyByProperty={}; history.forEach(h=>{
+    const key = h.property_id || '';
+    if(key) (historyByProperty[key] ||= []).push(h);
+  });
   return properties.map(p=>{
     const contract=(contractsByProperty[p.id]||[])[0]||{};
     const tenant=tenantById[contract.tenant_id]||{};
@@ -64,7 +68,7 @@ function normalize(properties, contracts, tenants, maintenance, documents=[]){
     const scopeDate=p.scope_valid_until || plannedMaintenance.planned_date;
     const purchaseValue = Number(p.purchase_value || 0);
     const grossYield = purchaseValue > 0 ? (Number(rentPj || 0) / purchaseValue) * 100 : null;
-    const maintenanceHistory = (maintenanceByProperty[p.id] || []).sort((a,b)=>String(b.planned_date||'').localeCompare(String(a.planned_date||'')));
+    const maintenanceHistory = (historyByProperty[p.id] || maintenanceByProperty[p.id] || []).sort((a,b)=>String(b.planned_date||b.done_date||'').localeCompare(String(a.planned_date||a.done_date||'')));
     const documentsList = (documentsByProperty[p.id] || []).sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')));
     return {id:p.id, property:p, contract, tenant, maintenance:plannedMaintenance, maintenance_history:maintenanceHistory, documenten:documentsList, object:objectName, straatnaam:p.address||'', huisnummer:p.house_number||'', stad:p.city||'', type:p.property_type||'-', status:p.status||'-', huurder:tenant.name||p.tenant_name||'-', email:tenant.email||p.email||'', telefoon:tenant.phone||p.phone||'', huur_pm:rentPm, huur_pj:rentPj, servicekosten:p.service_costs||0, waarborgsom:p.deposit||0, aankoopwaarde:p.purchase_value||0, woz_waarde:p.woz_value||0, hypotheek:p.mortgage_value||0, hypotheekrente:p.mortgage_interest||0, aankoopdatum:p.purchase_date||'', foto_url:p.photo_url||'', bruto_rendement:grossYield, overwaarde:(Number(p.woz_value||0)-Number(p.mortgage_value||0)), energielabel:p.energy_label||'-', energielabel_geldig_tot:p.energy_label_valid_until||'', maand_huurverhoging:p.rent_increase_month||'', einddatum_contract:contractEnd, startdatum_contract:contract.start_date||'', opzegdatum:noticeDate, scope_inspectie_geldig_tot:scopeDate, onderhoud_titel:plannedMaintenance.title||'Scope-inspectie', onderhoud_status:plannedMaintenance.status||'-', onderhoud_kosten:plannedMaintenance.cost||0, onderhoud_prioriteit:plannedMaintenance.priority||'-', onderhoud_omschrijving:plannedMaintenance.description||'', status_contract:getDateStatus(contractEnd,365,90), status_opzeg:getDateStatus(noticeDate,365,90), status_scope:getDateStatus(scopeDate,365,90), status_energy:getDateStatus(p.energy_label_valid_until,180,60), status_rent_increase:rentIncreaseStatus(p.rent_increase_month)};
   });
@@ -74,10 +78,10 @@ function showApp(){ el('loginView').classList.add('hidden'); el('appView').class
 async function checkSession(){ const {data}=await sb.auth.getSession(); if(data.session){showApp(); await loadData();} else showLogin(); }
 async function loadData(){
   try{
-    const [pr,cr,tr,mr,dr]=await Promise.all([sb.from('properties').select('*').order('created_at',{ascending:false}), sb.from('contracts').select('*'), sb.from('tenants').select('*'), sb.from('maintenance').select('*'), sb.from('property_documents').select('*')]);
-    [pr,cr,tr,mr,dr].forEach(r=>{if(r.error) throw r.error});
-    rawProperties=pr.data||[]; rawContracts=cr.data||[]; rawTenants=tr.data||[]; rawMaintenance=mr.data||[]; rawDocuments=dr.data||[];
-    vastgoedData=normalize(rawProperties, rawContracts, rawTenants, rawMaintenance, rawDocuments);
+    const [pr,cr,tr,mr,dr,hr]=await Promise.all([sb.from('properties').select('*').order('created_at',{ascending:false}), sb.from('contracts').select('*'), sb.from('tenants').select('*'), sb.from('maintenance').select('*'), sb.from('property_documents').select('*'), sb.from('property_maintenance_history').select('*')]);
+    [pr,cr,tr,mr,dr,hr].forEach(r=>{if(r.error) throw r.error});
+    rawProperties=pr.data||[]; rawContracts=cr.data||[]; rawTenants=tr.data||[]; rawMaintenance=mr.data||[]; rawDocuments=dr.data||[]; rawMaintenanceHistory=hr.data||[];
+    vastgoedData=normalize(rawProperties, rawContracts, rawTenants, rawMaintenance, rawDocuments, rawMaintenanceHistory);
     el('statusText').textContent=`Live data uit Supabase. Laatst geladen: ${new Date().toLocaleTimeString('nl-NL')}`;
     render(); if(selectedPropertyId) renderDetail(selectedPropertyId);
   }catch(error){ console.error(error); el('statusText').textContent='Kan data niet laden.'; el('attentionList').innerHTML=`<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`; }
@@ -164,11 +168,28 @@ function render(){
   el('objectGrid').innerHTML=data.map(r=>`<article class="objectCard">${photoBox(r.foto_url,'objectPhoto',`Foto van ${r.object}`)}<h3>${r.object}</h3><div class="meta">${r.straatnaam} ${r.huisnummer} ${r.stad}</div><div class="row"><span>Huurder</span><strong>${r.huurder}</strong></div><div class="row"><span>Huur p/m</span><strong>${euro(r.huur_pm)}</strong></div><div class="row"><span>Jaarhuur</span><strong>${euro(r.huur_pj)}</strong></div><div class="row"><span>Bruto rendement</span><strong>${r.bruto_rendement===null?'-':pct(r.bruto_rendement)}</strong></div><div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div><div class="row"><span>Onderhoud</span>${statusBadge(r.status_scope)}</div><button class="smallBtn detailBtn" data-id="${r.id}">Details</button><button class="smallBtn editBtn" data-id="${r.id}">Bewerken</button></article>`).join('') || '<p>Geen objecten gevonden.</p>';
   refreshPhotos();
   el('contractTable').innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Huur p/m</th><th>Startdatum</th><th>Einddatum</th><th>Opzegdatum</th><th>Status</th></tr>`+data.map(r=>`<tr><td>${r.object}</td><td>${r.huurder}</td><td>${euro(r.huur_pm)}</td><td>${dateFmt(r.startdatum_contract)}</td><td>${dateFmt(r.einddatum_contract)}</td><td>${dateFmt(r.opzegdatum)}</td><td>${statusBadge(r.status_contract)}</td></tr>`).join('');
-  el('maintenanceTable').innerHTML=`<tr><th>Object</th><th>Type</th><th>Datum</th><th>Kosten</th><th>Status</th><th>Prioriteit</th></tr>`+data.map(r=>`<tr><td>${r.object}</td><td>${r.onderhoud_titel}</td><td>${dateFmt(r.scope_inspectie_geldig_tot)}</td><td>${euro(r.onderhoud_kosten)}</td><td>${statusBadge(r.status_scope)}</td><td>${r.onderhoud_prioriteit}</td></tr>`).join('');
+  const maintRows=[]; data.forEach(r=>{ (r.maintenance_history||[]).forEach(m=>maintRows.push(`<tr><td>${r.object}</td><td>${m.maintenance_type||m.title||'-'}</td><td>${dateFmt(m.done_date||m.planned_date)}</td><td>${dateFmt(m.planned_date)}</td><td>${m.supplier||'-'}</td><td>${euro(m.cost||0)}</td><td>${m.status||'-'}</td></tr>`)); });
+  el('maintenanceTable').innerHTML=`<tr><th>Object</th><th>Type</th><th>Gedaan</th><th>Planning</th><th>Partij</th><th>Kosten</th><th>Status</th></tr>`+(maintRows.join('') || `<tr><td colspan="7">Nog geen onderhoudshistorie.</td></tr>`);
 }
 function maintenanceHistoryHtml(r){
-  const rows=(r.maintenance_history||[]).map(m=>`<tr><td>${dateFmt(m.planned_date)}</td><td>${m.title||'-'}</td><td>${m.status||'-'}</td><td>${m.priority||'-'}</td><td>${euro(m.cost||0)}</td></tr>`).join('');
-  return rows ? `<table><tr><th>Datum</th><th>Activiteit</th><th>Status</th><th>Prioriteit</th><th>Kosten</th></tr>${rows}</table>` : '<p class="empty">Nog geen onderhoudshistorie.</p>';
+  const rows=(r.maintenance_history||[]).map(m=>`<tr><td>${m.maintenance_type||m.title||'-'}</td><td>${m.build_year||'-'}</td><td>${dateFmt(m.done_date||m.planned_date)}</td><td>${dateFmt(m.planned_date)}</td><td>${m.supplier||'-'}</td><td>${m.status||'-'}</td><td>${euro(m.cost||0)}</td><td><button class="miniLink deleteHistBtn" data-id="${m.id}">Verwijder</button></td></tr>`).join('');
+  const table = rows ? `<table><tr><th>Type</th><th>Bouwjaar</th><th>Gedaan</th><th>Planning</th><th>Partij</th><th>Status</th><th>Kosten</th><th></th></tr>${rows}</table>` : '<p class="empty">Nog geen onderhoudshistorie.</p>';
+  const form = `<div class="historyForm"><h4>Onderhoudsregel toevoegen</h4><div class="formGrid"><label>Type<select id="histType"><option>Airco</option><option>CV-Installatie</option><option>Brandbeveiliging</option><option>Alarm installatie</option><option>Overheaddeur</option><option>Schilderwerk</option><option>Gevelreiniging</option><option>Onkruid</option><option>Scope-inspectie</option><option>Overig</option></select></label><label>Bouwjaar<input id="histBuildYear" type="number"></label><label>Gedaan<input id="histDoneDate" type="date"></label><label>Planning<input id="histPlannedDate" type="date"></label><label>Partij<input id="histSupplier"></label><label>Status<select id="histStatus"><option>Open</option><option>Gepland</option><option>Afgerond</option><option>Controle nodig</option></select></label><label>Kosten<input id="histCost" type="number" step="0.01"></label></div><label>Beschrijving<textarea id="histDescription" rows="2"></textarea></label><button class="smallBtn addHistBtn" data-id="${r.id}">Onderhoudsregel toevoegen</button><p id="historyMessage" class="formMessage"></p></div>`;
+  return form + table;
+}
+async function addMaintenanceHistory(propertyId){
+  const msg=el('historyMessage'); if(msg) msg.textContent='Bezig met opslaan...';
+  const r=vastgoedData.find(x=>x.id===propertyId);
+  const payload={property_id:propertyId, property_name:r?.object||null, property_address:r?.straatnaam||null, house_number:r?.huisnummer||null, tenant_name:r?.huurder||null, maintenance_type:el('histType').value, build_year:numOrNull(el('histBuildYear').value), done_date:el('histDoneDate').value||null, planned_date:el('histPlannedDate').value||null, supplier:el('histSupplier').value||null, status:el('histStatus').value||'Open', cost:numOrNull(el('histCost').value), description:el('histDescription').value||null};
+  const res=await sb.from('property_maintenance_history').insert(payload);
+  if(res.error){ if(msg) msg.textContent=res.error.message; return; }
+  await loadData(); renderDetail(propertyId);
+}
+async function deleteMaintenanceHistory(id){
+  if(!confirm('Onderhoudsregel verwijderen?')) return;
+  const res=await sb.from('property_maintenance_history').delete().eq('id',id);
+  if(res.error){ alert(res.error.message); return; }
+  await loadData(); if(selectedPropertyId) renderDetail(selectedPropertyId);
 }
 
 function documentListHtml(r){
@@ -256,7 +277,7 @@ function init(){
   if(!window.supabase){ el('loginError').textContent='Supabase library niet geladen. Ververs de pagina.'; return; }
   sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   document.querySelectorAll('.nav').forEach(btn=>btn.addEventListener('click',()=>{ selectedPropertyId=null; setPage(btn.dataset.page,btn.textContent); }));
-  document.body.addEventListener('click', e=>{ const detail=e.target.closest('.detailBtn'); const edit=e.target.closest('.editBtn'); const upload=e.target.closest('.uploadDocBtn'); const openDoc=e.target.closest('.openDocBtn'); const deleteDoc=e.target.closest('.deleteDocBtn'); if(detail) renderDetail(detail.dataset.id); if(edit) openEditProperty(edit.dataset.id); if(upload) uploadDocument(upload.dataset.id); if(openDoc) openDocument(openDoc.dataset.path); if(deleteDoc) deleteDocument(deleteDoc.dataset.id, deleteDoc.dataset.path); });
+  document.body.addEventListener('click', e=>{ const detail=e.target.closest('.detailBtn'); const edit=e.target.closest('.editBtn'); const upload=e.target.closest('.uploadDocBtn'); const openDoc=e.target.closest('.openDocBtn'); const deleteDoc=e.target.closest('.deleteDocBtn'); const addHist=e.target.closest('.addHistBtn'); const deleteHist=e.target.closest('.deleteHistBtn'); if(detail) renderDetail(detail.dataset.id); if(edit) openEditProperty(edit.dataset.id); if(upload) uploadDocument(upload.dataset.id); if(openDoc) openDocument(openDoc.dataset.path); if(deleteDoc) deleteDocument(deleteDoc.dataset.id, deleteDoc.dataset.path); if(addHist) addMaintenanceHistory(addHist.dataset.id); if(deleteHist) deleteMaintenanceHistory(deleteHist.dataset.id); });
   el('loginBtn').addEventListener('click', async()=>{ el('loginError').textContent='Bezig met inloggen...'; const email=el('email').value.trim(); const password=el('password').value; const {error}=await sb.auth.signInWithPassword({email,password}); if(error){ el('loginError').textContent='Inloggen mislukt: '+error.message; return;} el('loginError').textContent=''; showApp(); await loadData(); });
   el('password').addEventListener('keydown', e=>{ if(e.key==='Enter') el('loginBtn').click(); });
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; showLogin(); });
