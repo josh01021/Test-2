@@ -461,7 +461,7 @@ function currentTenantForProperty(propertyId){
 
 async function importMaintenanceCsv(){
   const input=el('maintenanceCsvFile');
-  const button=el('importMaintenanceCsvBtn');
+  const button=el('chooseMaintenanceCsvBtn');
   const message=el('maintenanceImportMessage');
   const results=el('maintenanceImportResults');
   const file=input?.files?.[0];
@@ -675,7 +675,7 @@ function init(){
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; showLogin(); });
   el('search').addEventListener('input', e=>{ query=e.target.value; render(); });
   document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); } if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
-  el('newPropertyBtn').addEventListener('click', openNewProperty); el('maintenanceCsvFile').addEventListener('change', e=>{ el('maintenanceCsvFileName').textContent=e.target.files?.[0]?.name || 'Geen bestand gekozen'; }); el('importMaintenanceCsvBtn').addEventListener('click', importMaintenanceCsv); el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
+  el('newPropertyBtn').addEventListener('click', openNewProperty); el('chooseMaintenanceCsvBtn').addEventListener('click',()=>el('maintenanceCsvFile').click()); el('maintenanceCsvFile').addEventListener('change', async e=>{ const file=e.target.files?.[0]; el('maintenanceCsvFileName').textContent=file?.name || ''; if(file) await importMaintenanceCsv(); }); el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }
 document.addEventListener('DOMContentLoaded', init);
