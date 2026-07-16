@@ -8,6 +8,20 @@ const statusBadge = st => `<span class="badge ${st[1]}">${st[0]}</span>`;
 const pct = n => Number.isFinite(Number(n)) ? `${Number(n).toFixed(1).replace('.', ',')}%` : '-';
 const clean = s => String(s || '').trim();
 const norm = s => String(s || '').toLowerCase().replace(/\s+/g,' ').trim();
+function compareObjectAddress(a,b){
+  const streetCompare=String(a.straatnaam||a.address||'').localeCompare(
+    String(b.straatnaam||b.address||''),
+    'nl',
+    {sensitivity:'base', numeric:true}
+  );
+  if(streetCompare!==0) return streetCompare;
+
+  return String(a.huisnummer||a.house_number||'').localeCompare(
+    String(b.huisnummer||b.house_number||''),
+    'nl',
+    {sensitivity:'base', numeric:true}
+  );
+}
 const el = id => document.getElementById(id);
 const signedPhotoCache = {};
 const safeFileName = name => String(name || 'bestand').replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -109,20 +123,7 @@ async function loadData(){
 function filtered(){
   return vastgoedData
     .filter(r=>JSON.stringify(r).toLowerCase().includes(query.toLowerCase()))
-    .sort((a,b)=>{
-      const streetCompare=String(a.straatnaam||'').localeCompare(
-        String(b.straatnaam||''),
-        'nl',
-        {sensitivity:'base', numeric:true}
-      );
-      if(streetCompare!==0) return streetCompare;
-
-      return String(a.huisnummer||'').localeCompare(
-        String(b.huisnummer||''),
-        'nl',
-        {sensitivity:'base', numeric:true}
-      );
-    });
+    .sort(compareObjectAddress);
 }
 function notificationItems(data){
   const items=[];
@@ -249,7 +250,10 @@ function maintenanceSourceRows(data){
 }
 function getPropertyById(id){ return vastgoedData.find(r=>r.id===id); }
 function propertyOptions(selectedId=''){
-  return `<option value="">Niet gekoppeld</option>` + vastgoedData.map(r=>`<option value="${r.id}" ${r.id===selectedId?'selected':''}>${r.object} ${r.straatnaam?`- ${r.straatnaam} ${r.huisnummer}`:''}</option>`).join('');
+  return `<option value="">Niet gekoppeld</option>` + [...vastgoedData]
+    .sort(compareObjectAddress)
+    .map(r=>`<option value="${r.id}" ${r.id===selectedId?'selected':''}>${r.object} ${r.straatnaam?`- ${r.straatnaam} ${r.huisnummer}`:''}</option>`)
+    .join('');
 }
 function maintenanceRowTable(rows){
   return `<table class="maintenanceObjectTable"><tr><th>Type</th><th>Bouwjaar</th><th>Gedaan</th><th>Planning</th><th>Partij</th><th>Kosten</th><th>Status</th><th>Acties</th></tr>`+
@@ -267,14 +271,33 @@ function renderMaintenanceOverview(data){
     if(maintenanceTypeFilter && r.type!==maintenanceTypeFilter) return false;
     if(maintenanceStatusFilter && norm(r.status)!==norm(maintenanceStatusFilter)) return false;
     return true;
-  }).sort((a,b)=>String(a.object).localeCompare(String(b.object)) || String(a.planned_date||a.done_date||'9999').localeCompare(String(b.planned_date||b.done_date||'9999')));
+  }).sort((a,b)=>{
+    const addressCompare=compareObjectAddress(
+      {straatnaam:a.raw?.property_address||a.address||a.object, huisnummer:a.raw?.house_number||''},
+      {straatnaam:b.raw?.property_address||b.address||b.object, huisnummer:b.raw?.house_number||''}
+    );
+    if(addressCompare!==0) return addressCompare;
+
+    const dateCompare=String(a.planned_date||a.done_date||'9999').localeCompare(
+      String(b.planned_date||b.done_date||'9999')
+    );
+    if(dateCompare!==0) return dateCompare;
+
+    return String(a.type||'').localeCompare(String(b.type||''),'nl',{sensitivity:'base',numeric:true});
+  });
   const overdue=rowsAll.filter(r=>{const d=daysUntil(r.planned_date); return d!==null && d<0 && maintStatusClass(r.status,r.planned_date)!=='ok';}).length;
   const upcoming90=rowsAll.filter(r=>{const d=daysUntil(r.planned_date); return d!==null && d>=0 && d<=90;}).length;
   const open=rowsAll.filter(r=>!['afgerond','gereed'].some(x=>norm(r.status).includes(x))).length;
   const totalCost=rowsAll.reduce((a,b)=>a+Number(b.cost||0),0);
   const objectOptionsMap={};
   allRows.forEach(r=>{ const key=r.objectId || r.object; if(key) objectOptionsMap[key]=r.object; });
-  const objects=Object.entries(objectOptionsMap).sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+  const objects=Object.entries(objectOptionsMap).sort((a,b)=>{
+    const aProperty=vastgoedData.find(r=>(r.id||r.object)===a[0] || r.object===a[1]);
+    const bProperty=vastgoedData.find(r=>(r.id||r.object)===b[0] || r.object===b[1]);
+
+    if(aProperty && bProperty) return compareObjectAddress(aProperty,bProperty);
+    return String(a[1]).localeCompare(String(b[1]),'nl',{sensitivity:'base',numeric:true});
+  });
   const types=[...new Set(allRows.map(r=>r.type).filter(Boolean))].sort();
   const statuses=[...new Set(allRows.map(r=>r.status).filter(Boolean))].sort();
   const filterHtml=`<div class="maintenanceFilters maintenanceFiltersWide"><label>Object<select id="maintenanceObjectFilter"><option value="">Alle objecten</option>${objects.map(([key,name])=>`<option value="${escAttr(key)}" ${maintenanceObjectFilter===key?'selected':''}>${name}</option>`).join('')}</select></label><label>Type<select id="maintenanceTypeFilter"><option value="">Alle types</option>${types.map(t=>`<option ${maintenanceTypeFilter===t?'selected':''}>${t}</option>`).join('')}</select></label><label>Status<select id="maintenanceStatusFilter"><option value="">Alle statussen</option>${statuses.map(st=>`<option ${maintenanceStatusFilter===st?'selected':''}>${st}</option>`).join('')}</select></label></div>`;
