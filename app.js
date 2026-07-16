@@ -47,7 +47,15 @@ const monthMap={januari:0,februari:1,maart:2,april:3,mei:4,juni:5,juli:6,augustu
 function daysUntilRentIncrease(monthName){ if(!monthName) return null; const key=String(monthName).trim().toLowerCase(); if(!(key in monthMap)) return null; const today=new Date(); today.setHours(0,0,0,0); let target=new Date(today.getFullYear(), monthMap[key], 1); if(target<today) target=new Date(today.getFullYear()+1, monthMap[key], 1); return Math.ceil((target-today)/(1000*60*60*24)); }
 function rentIncreaseStatus(monthName){ const days=daysUntilRentIncrease(monthName); if(days===null) return ['Niet ingesteld','warning']; if(days<=30) return ['Deze maand/komende 30 dagen','danger']; if(days<=60) return ['Binnen 60 dagen','warning']; return ['Op orde','ok']; }
 function actionItem(sev,type,title,text,objectId){ return {sev,type,title,text,objectId}; }
-function setPage(pageId, title){ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); el(pageId).classList.add('active'); document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active', n.dataset.page===pageId)); el('pageTitle').textContent=title || pageId; }
+function setPage(pageId, title){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  el(pageId).classList.add('active');
+  document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active', n.dataset.page===pageId));
+  el('pageTitle').textContent=title || pageId;
+
+  const csvButton=el('chooseMaintenanceCsvBtn');
+  if(csvButton) csvButton.classList.toggle('hidden', pageId!=='onderhoud');
+}
 
 function normalize(properties, contracts, tenants, maintenance, documents=[], history=[]){
   const tenantById=Object.fromEntries(tenants.map(t=>[t.id,t]));
@@ -467,7 +475,10 @@ async function importMaintenanceCsv(){
   const file=input?.files?.[0];
   if(!file){ message.textContent='Kies eerst de onderhouds-CSV.'; return; }
 
-  button.disabled=true;
+  if(button){
+    button.classList.add('importing');
+    button.setAttribute('aria-disabled','true');
+  }
   message.textContent='CSV wordt gelezen en gekoppeld...';
   results.innerHTML='';
 
@@ -541,7 +552,10 @@ async function importMaintenanceCsv(){
     console.error(error);
     message.textContent='Importeren mislukt: '+error.message;
   } finally {
-    button.disabled=false;
+    if(button){
+      button.classList.remove('importing');
+      button.removeAttribute('aria-disabled');
+    }
   }
 }
 
@@ -675,7 +689,16 @@ function init(){
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; showLogin(); });
   el('search').addEventListener('input', e=>{ query=e.target.value; render(); });
   document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); } if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
-  el('newPropertyBtn').addEventListener('click', openNewProperty); el('chooseMaintenanceCsvBtn').addEventListener('click',()=>el('maintenanceCsvFile').click()); el('maintenanceCsvFile').addEventListener('change', async e=>{ const file=e.target.files?.[0]; el('maintenanceCsvFileName').textContent=file?.name || ''; if(file) await importMaintenanceCsv(); }); el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
+  el('newPropertyBtn').addEventListener('click', openNewProperty);
+  const maintenanceCsvInput=el('maintenanceCsvFile');
+  if(maintenanceCsvInput){
+    maintenanceCsvInput.addEventListener('change', async e=>{
+      const file=e.target.files?.[0];
+      if(file) await importMaintenanceCsv();
+      e.target.value='';
+    });
+  }
+  el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }
 document.addEventListener('DOMContentLoaded', init);

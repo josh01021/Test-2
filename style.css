@@ -18,12 +18,6 @@
 .maintenanceFiltersWide{grid-template-columns:repeat(3,minmax(180px,320px));}
 @media(max-width:900px){.maintenanceFiltersWide{grid-template-columns:1fr;}}
 
-.maintenanceImportToolbar{display:flex;align-items:center;gap:10px;margin:0 0 12px}
-.compactFileInput{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-#chooseMaintenanceCsvBtn{flex:0 0 auto;width:auto;margin:0;padding:12px 16px;border-radius:12px;background:#172033;color:#fff;font-weight:700}
-#chooseMaintenanceCsvBtn:hover{background:#24324a}
-#chooseMaintenanceCsvBtn:disabled{opacity:.55;cursor:not-allowed}
-.csvFileName{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:14px}
 .maintenanceImportMessage{margin:0 0 10px}
 .importSummary{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px}
 .importSummary span{background:#f1f5f9;border-radius:999px;padding:7px 10px;color:#475569;font-size:13px}
@@ -32,4 +26,42 @@
 .importNotice span{font-size:13px;line-height:1.45}
 .importNotice.warning{background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12}
 .importNotice.danger{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
-@media(max-width:700px){.maintenanceImportToolbar{align-items:flex-start;flex-wrap:wrap}.csvFileName{width:100%;max-width:none}}
+
+.compactFileInput{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+.headerCsvButton{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  min-height:42px;
+  padding:12px 16px;
+  border-radius:12px;
+  background:#172033;
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+  white-space:nowrap;
+  user-select:none;
+}
+.headerCsvButton:hover{background:#24324a}
+.headerCsvButton.importing{
+  opacity:.55;
+  pointer-events:none;
+  cursor:wait;
+}
+.headerActions{margin-left:auto}
+@media(max-width:900px){
+  .headerActions{display:flex;flex-wrap:wrap;align-items:center}
+  .headerActions #search{flex:1 1 100%;margin:12px 0 0}
+  .headerCsvButton{margin-top:10px}
+}

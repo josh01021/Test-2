@@ -38,6 +38,8 @@
         <div class="headerActions">
           <input id="search" placeholder="Zoek object, huurder of status...">
           <button id="newPropertyBtn">+ Object</button>
+          <input id="maintenanceCsvFile" class="compactFileInput" type="file" accept=".csv,text/csv">
+          <label id="chooseMaintenanceCsvBtn" class="headerCsvButton hidden" for="maintenanceCsvFile">CSV uploaden</label>
         </div>
       </header>
 
@@ -90,11 +92,6 @@
       </section>
 
       <section id="onderhoud" class="page">
-        <div class="maintenanceImportToolbar">
-          <input id="maintenanceCsvFile" class="compactFileInput" type="file" accept=".csv,text/csv">
-          <button id="chooseMaintenanceCsvBtn" type="button">CSV uploaden</button>
-          <span id="maintenanceCsvFileName" class="csvFileName"></span>
-        </div>
         <p id="maintenanceImportMessage" class="formMessage maintenanceImportMessage"></p>
         <div id="maintenanceImportResults"></div>
         <div id="maintenanceOverview"></div>
