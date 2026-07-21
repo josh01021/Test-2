@@ -3,14 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vastgoed Dashboard</title>
+  <title id="browserTitle">Vastgoed Dashboard</title>
+  <link id="faviconLink" rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <section id="loginView" class="loginView">
     <div class="loginCard">
-      <h1>Vastgoed Dashboard</h1>
-      <p>Log in om je vastgoeddata te bekijken.</p>
+      <div class="loginBranding">
+        <img id="loginLogo" class="loginLogo hidden" alt="Bedrijfslogo">
+        <h1 id="loginCompanyName">Vastgoed Dashboard</h1>
+        <p id="loginSubtitle">Log in om je vastgoeddata te bekijken.</p>
+      </div>
       <input id="email" type="email" placeholder="E-mailadres">
       <input id="password" type="password" placeholder="Wachtwoord">
       <button id="loginBtn">Inloggen</button>
@@ -20,12 +24,16 @@
 
   <section id="appView" class="appView hidden">
     <aside class="sidebar">
-      <div class="brand">Vastgoed<br><span>Dashboard</span></div>
+      <div class="brand brandBlock">
+        <img id="sidebarLogo" class="sidebarLogo hidden" alt="Bedrijfslogo">
+        <div><strong id="sidebarCompanyName">Vastgoed</strong><br><span id="sidebarDashboardName">Dashboard</span></div>
+      </div>
       <button class="nav active" data-page="dashboard">Dashboard</button>
       <button class="nav" data-page="objecten">Objecten</button>
       <button class="nav" data-page="contracten">Contracten</button>
       <button class="nav" data-page="onderhoud">Onderhoud</button>
       <button class="nav" data-page="meldingen">Meldingen</button>
+      <button class="nav" data-page="instellingen">Instellingen</button>
       <button id="logoutBtn" class="logoutBtn">Uitloggen</button>
     </aside>
 
@@ -100,6 +108,43 @@
       <section id="meldingen" class="page">
         <div id="notificationList" class="alertList"></div>
       </section>
+
+      <section id="instellingen" class="page">
+        <div class="panel settingsPanel">
+          <div class="settingsIntro">
+            <div>
+              <h2>Huisstijl en branding</h2>
+              <p>Pas de bedrijfsnaam, dashboardnaam, logo, favicon en kleuren aan.</p>
+            </div>
+            <div id="brandingPreview" class="brandingPreview">
+              <img id="previewLogo" class="previewLogo hidden" alt="Logo voorbeeld">
+              <div><strong id="previewCompanyName">Vastgoed</strong><span id="previewDashboardName">Dashboard</span></div>
+            </div>
+          </div>
+          <form id="brandingForm">
+            <div class="formGrid">
+              <label>Bedrijfsnaam<input id="brandingCompanyName" maxlength="80" required></label>
+              <label>Dashboardnaam<input id="brandingDashboardName" maxlength="80" required></label>
+              <label>Logintekst<input id="brandingLoginSubtitle" maxlength="140"></label>
+              <label>Browsertitel<input id="brandingBrowserTitle" maxlength="120"></label>
+              <label>Hoofdkleur<input id="brandingPrimaryColor" type="color" value="#101827"></label>
+              <label>Accentkleur<input id="brandingAccentColor" type="color" value="#94a3b8"></label>
+              <label>Logo uploaden<input id="brandingLogoFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
+              <label>Favicon uploaden<input id="brandingFaviconFile" type="file" accept="image/png,image/x-icon,image/svg+xml,image/webp"></label>
+            </div>
+            <div class="currentBrandingFiles">
+              <span id="currentLogoText">Nog geen logo ingesteld</span>
+              <span id="currentFaviconText">Nog geen favicon ingesteld</span>
+            </div>
+            <div class="formActions">
+              <button type="button" id="resetBrandingBtn" class="secondaryBtn">Standaard herstellen</button>
+              <button type="submit">Instellingen opslaan</button>
+            </div>
+          </form>
+          <p id="brandingMessage" class="formMessage"></p>
+        </div>
+      </section>
+
     </main>
   </section>
 

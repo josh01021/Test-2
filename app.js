@@ -29,6 +29,92 @@ const isExternalUrl = value => /^https?:\/\//i.test(String(value || ''));
 const escAttr = value => String(value || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const escHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 
+const DEFAULT_BRANDING={
+  company_name:'Vastgoed',
+  dashboard_name:'Dashboard',
+  login_subtitle:'Log in om je vastgoeddata te bekijken.',
+  browser_title:'Vastgoed Dashboard',
+  primary_color:'#101827',
+  accent_color:'#94a3b8',
+  logo_url:'',
+  favicon_url:''
+};
+let branding={...DEFAULT_BRANDING};
+function validHex(value,fallback){return /^#[0-9a-f]{6}$/i.test(String(value||''))?value:fallback;}
+function setImage(id,url){const node=el(id);if(!node)return;node.classList.toggle('hidden',!url);if(url)node.src=url;else node.removeAttribute('src');}
+function applyBranding(next={}){
+  branding={...DEFAULT_BRANDING,...next};
+  branding.primary_color=validHex(branding.primary_color,DEFAULT_BRANDING.primary_color);
+  branding.accent_color=validHex(branding.accent_color,DEFAULT_BRANDING.accent_color);
+  document.documentElement.style.setProperty('--brand-primary',branding.primary_color);
+  document.documentElement.style.setProperty('--brand-accent',branding.accent_color);
+  if(el('sidebarCompanyName')) el('sidebarCompanyName').textContent=branding.company_name;
+  if(el('sidebarDashboardName')) el('sidebarDashboardName').textContent=branding.dashboard_name;
+  if(el('loginCompanyName')) el('loginCompanyName').textContent=`${branding.company_name} ${branding.dashboard_name}`.trim();
+  if(el('loginSubtitle')) el('loginSubtitle').textContent=branding.login_subtitle;
+  document.title=branding.browser_title||`${branding.company_name} | ${branding.dashboard_name}`;
+  const fav=el('faviconLink'); if(fav) fav.href=branding.favicon_url||'data:,';
+  setImage('sidebarLogo',branding.logo_url);setImage('loginLogo',branding.logo_url);setImage('previewLogo',branding.logo_url);
+  if(el('previewCompanyName')) el('previewCompanyName').textContent=branding.company_name;
+  if(el('previewDashboardName')) el('previewDashboardName').textContent=branding.dashboard_name;
+  fillBrandingForm();
+}
+function fillBrandingForm(){
+  if(!el('brandingCompanyName')) return;
+  el('brandingCompanyName').value=branding.company_name||'';
+  el('brandingDashboardName').value=branding.dashboard_name||'';
+  el('brandingLoginSubtitle').value=branding.login_subtitle||'';
+  el('brandingBrowserTitle').value=branding.browser_title||'';
+  el('brandingPrimaryColor').value=validHex(branding.primary_color,DEFAULT_BRANDING.primary_color);
+  el('brandingAccentColor').value=validHex(branding.accent_color,DEFAULT_BRANDING.accent_color);
+  el('currentLogoText').textContent=branding.logo_url?'Logo ingesteld':'Nog geen logo ingesteld';
+  el('currentFaviconText').textContent=branding.favicon_url?'Favicon ingesteld':'Nog geen favicon ingesteld';
+}
+async function loadBranding(){
+  applyBranding(DEFAULT_BRANDING);
+  try{
+    const {data,error}=await sb.from('app_settings').select('*').eq('id',1).maybeSingle();
+    if(error) throw error;
+    if(data) applyBranding(data);
+  }catch(error){console.warn('Branding kon niet geladen worden:',error.message);}
+}
+async function uploadBrandingFile(file,folder){
+  if(!file) return null;
+  const path=`${folder}/${Date.now()}-${safeFileName(file.name)}`;
+  const up=await sb.storage.from('branding').upload(path,file,{upsert:false,cacheControl:'3600'});
+  if(up.error) throw up.error;
+  const {data}=sb.storage.from('branding').getPublicUrl(path);
+  return data.publicUrl;
+}
+async function saveBranding(e){
+  e.preventDefault(); const msg=el('brandingMessage'); msg.textContent='Bezig met opslaan...';
+  try{
+    const logoFile=el('brandingLogoFile').files?.[0];
+    const faviconFile=el('brandingFaviconFile').files?.[0];
+    const logoUrl=await uploadBrandingFile(logoFile,'logos')||branding.logo_url||null;
+    const faviconUrl=await uploadBrandingFile(faviconFile,'favicons')||branding.favicon_url||null;
+    const payload={id:1,company_name:clean(el('brandingCompanyName').value)||DEFAULT_BRANDING.company_name,dashboard_name:clean(el('brandingDashboardName').value)||DEFAULT_BRANDING.dashboard_name,login_subtitle:clean(el('brandingLoginSubtitle').value)||DEFAULT_BRANDING.login_subtitle,browser_title:clean(el('brandingBrowserTitle').value)||null,primary_color:validHex(el('brandingPrimaryColor').value,DEFAULT_BRANDING.primary_color),accent_color:validHex(el('brandingAccentColor').value,DEFAULT_BRANDING.accent_color),logo_url:logoUrl,favicon_url:faviconUrl,updated_at:new Date().toISOString()};
+    const res=await sb.from('app_settings').upsert(payload,{onConflict:'id'}).select().single();
+    if(res.error) throw res.error;
+    el('brandingLogoFile').value='';el('brandingFaviconFile').value='';applyBranding(res.data);msg.textContent='Instellingen opgeslagen.';
+  }catch(error){console.error(error);msg.textContent='Opslaan mislukt: '+error.message;}
+}
+async function resetBranding(){
+  if(!confirm('Standaard huisstijl herstellen? Het huidige logo en favicon worden losgekoppeld.')) return;
+  const payload={id:1,...DEFAULT_BRANDING,logo_url:null,favicon_url:null,updated_at:new Date().toISOString()};
+  const res=await sb.from('app_settings').upsert(payload,{onConflict:'id'}).select().single();
+  if(res.error){el('brandingMessage').textContent=res.error.message;return;}
+  applyBranding(res.data);el('brandingMessage').textContent='Standaard huisstijl hersteld.';
+}
+function previewBrandingForm(){
+  if(!el('brandingCompanyName')) return;
+  document.documentElement.style.setProperty('--brand-primary',validHex(el('brandingPrimaryColor').value,branding.primary_color));
+  document.documentElement.style.setProperty('--brand-accent',validHex(el('brandingAccentColor').value,branding.accent_color));
+  el('previewCompanyName').textContent=el('brandingCompanyName').value||DEFAULT_BRANDING.company_name;
+  el('previewDashboardName').textContent=el('brandingDashboardName').value||DEFAULT_BRANDING.dashboard_name;
+}
+
+
 async function resolvePhotoUrl(value){
   if(!value) return '';
   if(isExternalUrl(value)) return value;
@@ -109,7 +195,7 @@ function normalize(properties, contracts, tenants, maintenance, documents=[], hi
 }
 function showLogin(){ el('loginView').classList.remove('hidden'); el('appView').classList.add('hidden'); }
 function showApp(){ el('loginView').classList.add('hidden'); el('appView').classList.remove('hidden'); }
-async function checkSession(){ const {data}=await sb.auth.getSession(); if(data.session){showApp(); await loadData();} else showLogin(); }
+async function checkSession(){ await loadBranding(); const {data}=await sb.auth.getSession(); if(data.session){showApp(); await loadData();} else showLogin(); }
 async function loadData(){
   try{
     const [pr,cr,tr,mr,dr,hr]=await Promise.all([sb.from('properties').select('*').order('created_at',{ascending:false}), sb.from('contracts').select('*'), sb.from('tenants').select('*'), sb.from('maintenance').select('*'), sb.from('property_documents').select('*'), sb.from('property_maintenance_history').select('*')]);
@@ -738,7 +824,11 @@ function init(){
       e.target.value='';
     });
   }
-  el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); }); el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
+  el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); });
+  el('brandingForm').addEventListener('submit',saveBranding);
+  el('resetBrandingBtn').addEventListener('click',resetBranding);
+  ['brandingCompanyName','brandingDashboardName','brandingPrimaryColor','brandingAccentColor'].forEach(id=>el(id).addEventListener('input',previewBrandingForm));
+  el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }
 document.addEventListener('DOMContentLoaded', init);
