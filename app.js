@@ -57,6 +57,11 @@ const RENT_REFERENCE_OFFSET_MONTHS=4;
 const RENT_OLD_REFERENCE_OFFSET_MONTHS=16;
 let rawRentIncreaseProposals=[];
 let rentIncreaseSetupReady=true;
+let rawServiceCostSettlements=[];
+let serviceCostSetupReady=true;
+let activeFinancialTab='rent';
+let serviceCostYear=new Date().getFullYear()-1;
+let activeServiceCostContext=null;
 let cbsIndexCache={loaded:false,loading:null,loadedAt:null,measureCode:'',categoryCode:'',values:new Map(),error:''};
 let activeRentContext=null;
 const euro2=n=>new Intl.NumberFormat('nl-NL',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));
@@ -559,6 +564,300 @@ async function applyRentIncrease(){
   }catch(error){
     console.error(error);
     message.textContent='Verwerken mislukt: '+error.message;
+  }
+}
+
+
+function setFinancialTab(tab){
+  activeFinancialTab=tab==='service'?'service':'rent';
+  document.querySelectorAll('.financialTab').forEach(button=>{
+    const active=button.dataset.financialTab===activeFinancialTab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',String(active));
+  });
+  el('financialRentPanel')?.classList.toggle('active',activeFinancialTab==='rent');
+  el('financialServicePanel')?.classList.toggle('active',activeFinancialTab==='service');
+  if(activeFinancialTab==='rent') loadCbsIndexData(false);
+  renderFinancialPage(filtered());
+}
+
+function renderFinancialPage(data){
+  renderFinancialOverview(data);
+  renderServiceCostOverview(data);
+}
+
+function serviceCostRowYear(row){
+  const explicit=Number(row.settlement_year);
+  if(Number.isInteger(explicit)&&explicit>=2000&&explicit<=2200) return explicit;
+  const value=row.done_date||row.planned_date||'';
+  const parts=isoParts(value);
+  return parts?.year||null;
+}
+
+function serviceCostRowsFor(propertyId,year){
+  return maintenanceSourceRows(vastgoedData)
+    .filter(row=>row.objectId===propertyId&&row.is_service_cost&&serviceCostRowYear(row)===Number(year))
+    .sort((a,b)=>String(a.done_date||a.planned_date||'9999').localeCompare(String(b.done_date||b.planned_date||'9999'))||compareMaintenanceType(a,b));
+}
+
+function allocatedServiceCost(row){
+  const cost=Number(row.cost||0);
+  const percentage=Number.isFinite(Number(row.allocation_percentage))?Number(row.allocation_percentage):100;
+  return Math.round((cost*Math.max(0,Math.min(100,percentage))/100)*100)/100;
+}
+
+function contractMonthsInYear(r,year){
+  const y=Number(year);
+  const yearStart=y*12;
+  const yearEnd=yearStart+11;
+  const start=isoParts(r.startdatum_contract);
+  const end=isoParts(r.einddatum_contract||r.oorspronkelijke_einddatum_contract);
+  const first=start?start.year*12+(start.month-1):yearStart;
+  const last=end?end.year*12+(end.month-1):yearEnd;
+  const overlapStart=Math.max(yearStart,first);
+  const overlapEnd=Math.min(yearEnd,last);
+  return Math.max(0,overlapEnd-overlapStart+1);
+}
+
+function serviceCostSettlementFor(contractId,year){
+  return rawServiceCostSettlements.find(item=>item.contract_id===contractId&&Number(item.settlement_year)===Number(year))||null;
+}
+
+function serviceCostContext(r,year=serviceCostYear){
+  const rows=serviceCostRowsFor(r.id,year);
+  const proposal=serviceCostSettlementFor(r.contract?.id,year);
+  const months=proposal?.months_charged??contractMonthsInYear(r,year);
+  const calculatedAdvance=Math.round(Number(r.servicekosten||0)*Number(months||0)*100)/100;
+  const calculatedActual=Math.round(rows.reduce((sum,row)=>sum+allocatedServiceCost(row),0)*100)/100;
+  const advancePaid=proposal?.advance_paid??calculatedAdvance;
+  const actualCosts=proposal?.actual_costs??calculatedActual;
+  const balance=proposal?.final_balance??Math.round((Number(actualCosts)-Number(advancePaid))*100)/100;
+  const unchecked=rows.filter(row=>!row.service_cost_approved).length;
+  return {r,year:Number(year),rows,proposal,months:Number(months||0),calculatedAdvance,calculatedActual,advancePaid:Number(advancePaid||0),actualCosts:Number(actualCosts||0),balance:Number(balance||0),unchecked};
+}
+
+function serviceCostContextStatus(context){
+  if(!context.r.contract?.id) return ['Geen contract','danger'];
+  if(context.proposal?.status==='Verwerkt') return ['Verwerkt','ok'];
+  if(context.proposal?.status==='Goedgekeurd') return ['Goedgekeurd','ok'];
+  if(context.proposal) return ['Concept','warning'];
+  if(!Number(context.r.servicekosten)&&!context.rows.length) return ['Geen gegevens','warning'];
+  if(!Number(context.r.servicekosten)) return ['Voorschot ontbreekt','warning'];
+  if(!context.rows.length) return ['Geen kosten gekoppeld','warning'];
+  if(context.unchecked) return ['Controle nodig','warning'];
+  return ['Klaar voor concept','ok'];
+}
+
+function fillServiceCostYearOptions(){
+  const select=el('serviceCostYear');
+  if(!select) return;
+  const current=new Date().getFullYear();
+  const years=[];
+  for(let year=current+1;year>=current-6;year--) years.push(year);
+  if(!years.includes(Number(serviceCostYear))) years.push(Number(serviceCostYear));
+  years.sort((a,b)=>b-a);
+  select.innerHTML=years.map(year=>`<option value="${year}" ${Number(serviceCostYear)===year?'selected':''}>${year}</option>`).join('');
+}
+
+function renderServiceCostOverview(data){
+  const overview=el('serviceCostOverview');
+  const table=el('serviceCostTable');
+  if(!overview||!table) return;
+  fillServiceCostYearOptions();
+  const contexts=data
+    .filter(r=>r.contract?.id)
+    .map(r=>serviceCostContext(r,serviceCostYear))
+    .filter(context=>context.months>0||context.rows.length||context.proposal)
+    .sort((a,b)=>compareObjectAddress(a.r,b.r));
+  const totalAdvance=contexts.reduce((sum,c)=>sum+Number(c.advancePaid||0),0);
+  const totalActual=contexts.reduce((sum,c)=>sum+Number(c.actualCosts||0),0);
+  const toCollect=contexts.reduce((sum,c)=>sum+Math.max(0,Number(c.balance||0)),0);
+  const toRefund=contexts.reduce((sum,c)=>sum+Math.max(0,-Number(c.balance||0)),0);
+  const needsCheck=contexts.filter(c=>serviceCostContextStatus(c)[1]!=='ok').length;
+  overview.innerHTML=`<div class="financialSource"><span><strong>Berekening:</strong> gemarkeerde onderhoudskosten minus betaalde voorschotten</span><span>Alleen regels met “Doorbelasten via servicekosten: Ja” worden meegenomen.</span></div>
+  <div class="cards financialSummaryCards">
+    <div class="card"><span>Betaalde voorschotten</span><strong>${euro2(totalAdvance)}</strong></div>
+    <div class="card"><span>Werkelijke kosten</span><strong>${euro2(totalActual)}</strong></div>
+    <div class="card"><span>Nog te ontvangen</span><strong>${euro2(toCollect)}</strong></div>
+    <div class="card"><span>Terug te betalen</span><strong>${euro2(toRefund)}</strong></div>
+    <div class="card"><span>Controle nodig</span><strong>${needsCheck}</strong></div>
+  </div>`;
+
+  table.innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Periode</th><th>Voorschot</th><th>Werkelijke kosten</th><th>Saldo</th><th>Status</th><th>Acties</th></tr>`+
+    contexts.map(context=>{
+      const status=serviceCostContextStatus(context);
+      const balanceLabel=context.balance>0?'Bijbetalen':context.balance<0?'Terugbetalen':'In evenwicht';
+      const balanceClass=context.balance>0?'pay':context.balance<0?'refund':'';
+      return `<tr>
+        <td><strong>${escHtml(context.r.object)}</strong><span class="subtle">${escHtml([context.r.straatnaam,context.r.huisnummer].filter(Boolean).join(' '))}</span></td>
+        <td>${escHtml(context.r.huurder)}</td>
+        <td>${context.year}<span class="rentStatusText">${context.months} ${context.months===1?'maand':'maanden'}</span></td>
+        <td>${euro2(context.advancePaid)}<span class="rentStatusText">${euro2(context.r.servicekosten)} per maand</span></td>
+        <td>${euro2(context.actualCosts)}<span class="rentStatusText">${context.rows.length} kostenregels${context.unchecked?` · ${context.unchecked} niet gecontroleerd`:''}</span></td>
+        <td>${euro2(Math.abs(context.balance))}<span class="serviceCostBalance ${balanceClass}">${balanceLabel}</span></td>
+        <td>${statusBadge(status)}</td>
+        <td><div class="financialActionGroup"><button class="miniLink serviceCostEditBtn" data-id="${context.r.id}" data-year="${context.year}">${context.proposal?'Bekijken':'Berekenen'}</button>${context.proposal?`<button class="miniLink serviceCostQuickLetterBtn" data-id="${context.r.id}" data-year="${context.year}">Conceptafrekening</button>`:''}</div></td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="8">Geen contracten of servicekostengegevens voor dit jaar gevonden.</td></tr>';
+
+  if(!serviceCostSetupReady){
+    overview.insertAdjacentHTML('afterbegin','<div class="importNotice warning"><strong>Eenmalige Supabase-instelling nodig</strong><span>Voer het nieuwe SQL-bestand uit voordat je onderhoud als servicekosten markeert of afrekeningen opslaat.</span></div>');
+  }
+}
+
+function openServiceCostModal(propertyId,year=serviceCostYear){
+  const r=getPropertyById(propertyId);
+  if(!r) return;
+  const context=serviceCostContext(r,Number(year));
+  activeServiceCostContext=context;
+  const proposal=context.proposal;
+  el('serviceCostSettlementId').value=proposal?.id||'';
+  el('serviceCostPropertyId').value=r.id;
+  el('serviceCostContractId').value=r.contract?.id||'';
+  el('serviceCostModalTitle').textContent=`Servicekostenafrekening · ${r.object}`;
+  el('serviceCostModalMeta').textContent=`${r.huurder} · afrekenjaar ${context.year}`;
+  el('serviceMonthlyAdvance').textContent=euro2(r.servicekosten);
+  el('serviceSettlementYear').value=context.year;
+  el('serviceSettlementStatus').value=proposal?.status||'Concept';
+  el('serviceMonthsCharged').value=context.months;
+  el('serviceFinalAdvance').value=Number(context.advancePaid).toFixed(2);
+  el('serviceFinalActual').value=Number(context.actualCosts).toFixed(2);
+  el('serviceCorrectionReason').value=proposal?.correction_reason||'';
+  el('serviceSettlementNotes').value=proposal?.notes||'';
+  el('serviceCostModalMessage').textContent='';
+  renderServiceCostLines(context.rows);
+  updateServiceCostModalCalculation();
+  const warnings=[];
+  if(!context.rows.length) warnings.push('Er zijn nog geen onderhoudsregels als servicekosten gemarkeerd voor dit afrekenjaar.');
+  if(context.unchecked) warnings.push(`${context.unchecked} kostenregel(s) zijn nog niet als gecontroleerd gemarkeerd.`);
+  if(!Number(r.servicekosten)) warnings.push('Het maandelijkse voorschot servicekosten ontbreekt bij het object.');
+  el('serviceCostWarning').textContent=warnings.join(' ');
+  el('serviceCostWarning').classList.toggle('hidden',!warnings.length);
+  el('serviceCostModal').classList.remove('hidden');
+}
+
+function closeServiceCostModal(){
+  el('serviceCostModal').classList.add('hidden');
+  activeServiceCostContext=null;
+}
+
+function renderServiceCostLines(rows){
+  const target=el('serviceCostLines');
+  if(!target) return;
+  target.innerHTML=`<tr><th>Categorie</th><th>Onderhoud</th><th>Datum</th><th>Factuurbedrag</th><th>Aandeel</th><th>Meegenomen</th><th>Controle</th></tr>`+
+    rows.map(row=>`<tr><td>${escHtml(row.service_cost_category||'Overig')}</td><td>${escHtml(row.type)}</td><td>${maintenanceDateFmt(row.done_date||row.planned_date)}</td><td>${euro2(row.cost)}</td><td>${Number(row.allocation_percentage??100).toFixed(2).replace('.',',')}%</td><td>${euro2(allocatedServiceCost(row))}</td><td><span class="serviceCostTag ${row.service_cost_approved?'':'unchecked'}">${row.service_cost_approved?'Gecontroleerd':'Nog controleren'}</span></td></tr>`).join('')||'<tr><td colspan="7">Geen kostenregels gekoppeld.</td></tr>';
+}
+
+function updateServiceCostModalCalculation(){
+  if(!activeServiceCostContext) return;
+  const months=Math.max(0,Math.min(12,Number(el('serviceMonthsCharged').value)||0));
+  const calculatedAdvance=Math.round(Number(activeServiceCostContext.r.servicekosten||0)*months*100)/100;
+  const advance=Number(el('serviceFinalAdvance').value)||0;
+  const actual=Number(el('serviceFinalActual').value)||0;
+  const balance=Math.round((actual-advance)*100)/100;
+  el('serviceCalculatedAdvance').textContent=euro2(calculatedAdvance);
+  el('serviceCalculatedAdvance').dataset.value=calculatedAdvance;
+  el('serviceCalculatedActual').textContent=euro2(activeServiceCostContext.calculatedActual);
+  el('serviceCalculatedBalance').textContent=balance>0?`${euro2(balance)} bijbetalen`:balance<0?`${euro2(Math.abs(balance))} terugbetalen`:'€ 0,00';
+}
+
+function serviceCostPayload(){
+  if(!activeServiceCostContext) throw new Error('Geen servicekostenafrekening geselecteerd.');
+  const months=Math.max(0,Math.min(12,Math.round(Number(el('serviceMonthsCharged').value)||0)));
+  const advance=Number(el('serviceFinalAdvance').value);
+  const actual=Number(el('serviceFinalActual').value);
+  if(!Number.isFinite(advance)||advance<0||!Number.isFinite(actual)||actual<0) throw new Error('Vul geldige bedragen in.');
+  const calculatedAdvance=Math.round(Number(activeServiceCostContext.r.servicekosten||0)*months*100)/100;
+  const calculatedActual=activeServiceCostContext.calculatedActual;
+  const reason=clean(el('serviceCorrectionReason').value);
+  if((Math.abs(advance-calculatedAdvance)>0.01||Math.abs(actual-calculatedActual)>0.01)&&!reason){
+    throw new Error('Vul een reden in wanneer het voorschot of de werkelijke kosten afwijken van de automatische berekening.');
+  }
+  return {
+    property_id:activeServiceCostContext.r.id,
+    contract_id:activeServiceCostContext.r.contract.id,
+    tenant_id:activeServiceCostContext.r.tenant?.id||null,
+    settlement_year:Number(el('serviceSettlementYear').value),
+    period_start:`${el('serviceSettlementYear').value}-01-01`,
+    period_end:`${el('serviceSettlementYear').value}-12-31`,
+    monthly_advance:Number(activeServiceCostContext.r.servicekosten||0),
+    months_charged:months,
+    calculated_advance:calculatedAdvance,
+    advance_paid:advance,
+    calculated_actual_costs:calculatedActual,
+    actual_costs:actual,
+    calculated_balance:Math.round((calculatedActual-calculatedAdvance)*100)/100,
+    final_balance:Math.round((actual-advance)*100)/100,
+    correction_reason:reason||null,
+    notes:clean(el('serviceSettlementNotes').value)||null,
+    status:el('serviceSettlementStatus').value,
+    updated_at:new Date().toISOString()
+  };
+}
+
+async function persistServiceCostSettlement(){
+  if(!serviceCostSetupReady) throw new Error('Voer eerst het meegeleverde Supabase SQL-bestand uit.');
+  const payload=serviceCostPayload();
+  const result=await sb.from('service_cost_settlements').upsert(payload,{onConflict:'contract_id,settlement_year'}).select().single();
+  if(result.error) throw result.error;
+  const index=rawServiceCostSettlements.findIndex(item=>item.id===result.data.id||(item.contract_id===result.data.contract_id&&Number(item.settlement_year)===Number(result.data.settlement_year)));
+  if(index>=0) rawServiceCostSettlements[index]=result.data; else rawServiceCostSettlements.push(result.data);
+  activeServiceCostContext.proposal=result.data;
+  el('serviceCostSettlementId').value=result.data.id;
+  return result.data;
+}
+
+async function saveServiceCostSettlement(e){
+  e?.preventDefault();
+  const message=el('serviceCostModalMessage');
+  message.textContent='Concept wordt opgeslagen...';
+  try{
+    await persistServiceCostSettlement();
+    message.textContent='Servicekostenafrekening opgeslagen. Er wordt niets automatisch verzonden of financieel geboekt.';
+    renderServiceCostOverview(filtered());
+  }catch(error){
+    console.error(error);
+    message.textContent='Opslaan mislukt: '+error.message;
+  }
+}
+
+function createServiceCostLetterHtml(data,context){
+  const r=context.r;
+  const amount=value=>new Intl.NumberFormat('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value||0));
+  const balance=Number(data.final_balance||0);
+  const resultText=balance>0
+    ? `Nog door u te betalen: € ${amount(balance)}`
+    : balance<0
+      ? `Aan u terug te betalen: € ${amount(Math.abs(balance))}`
+      : 'De betaalde voorschotten en werkelijke kosten zijn gelijk.';
+  const lines=context.rows.map(row=>`<tr><td>${escHtml(row.service_cost_category||'Overig')}</td><td>${escHtml(row.type)}</td><td>${maintenanceDateFmt(row.done_date||row.planned_date)}</td><td>€ ${amount(allocatedServiceCost(row))}</td></tr>`).join('');
+  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"><title>Concept servicekostenafrekening ${escHtml(r.object)}</title><style>
+    *{box-sizing:border-box}html,body{margin:0;padding:0}body{background:#eef2f7;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.45}.toolbar{width:210mm;margin:18px auto 0;display:flex;gap:12px;align-items:center}.toolbar button{padding:10px 14px;border:0;border-radius:8px;background:#172033;color:#fff;font-weight:700}.notice{color:#7c2d12;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:9px 12px;font-size:13px}.sheet{width:210mm;min-height:297mm;margin:12px auto 28px;background:#fff;padding:25mm 20mm;box-shadow:0 18px 55px rgba(15,23,42,.16)}h1{font-size:18pt;margin:30mm 0 8mm}p{margin:0 0 5mm}table{width:100%;border-collapse:collapse;margin:8mm 0}th,td{text-align:left;padding:3mm 2mm;border-bottom:1px solid #ccc}th:last-child,td:last-child{text-align:right}.totals{width:85mm;margin-left:auto}.totals div{display:flex;justify-content:space-between;padding:2mm 0;border-bottom:1px solid #ccc}.result{margin-top:8mm;padding:4mm;border:2px solid #111;font-weight:700}.note{margin-top:8mm;font-size:9.5pt;color:#444}@page{size:A4 portrait;margin:25mm 20mm}@media print{body{background:#fff}.toolbar{display:none}.sheet{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}
+  </style></head><body><div class="toolbar"><button onclick="window.print()">Afdrukken / opslaan als PDF</button><div class="notice"><strong>Concept:</strong> controleer de afrekening. Er wordt niets automatisch verzonden.</div></div><main class="sheet">
+    <div>${escHtml(r.huurder)}</div><div>${escHtml(r.object)}</div><div>${escHtml([r.straatnaam,r.huisnummer,r.stad].filter(Boolean).join(' '))}</div>
+    <h1>Servicekostenafrekening ${data.settlement_year}</h1>
+    <p>Hierbij ontvangt u de conceptafrekening van de servicekosten over de periode 1 januari tot en met 31 december ${data.settlement_year}.</p>
+    <table><tr><th>Categorie</th><th>Omschrijving</th><th>Datum</th><th>Bedrag</th></tr>${lines||'<tr><td colspan="4">Geen kostenregels opgenomen.</td></tr>'}</table>
+    <div class="totals"><div><span>Werkelijke servicekosten</span><strong>€ ${amount(data.actual_costs)}</strong></div><div><span>Betaalde voorschotten</span><strong>€ ${amount(data.advance_paid)}</strong></div></div>
+    <div class="result">${escHtml(resultText)}</div>
+    ${data.correction_reason?`<p class="note"><strong>Toelichting correctie:</strong> ${escHtml(data.correction_reason)}</p>`:''}
+  </main></body></html>`;
+}
+
+function openServiceCostLetter(){
+  try{
+    if(!activeServiceCostContext) throw new Error('Geen afrekening geselecteerd.');
+    const data=serviceCostPayload();
+    const html=createServiceCostLetterHtml(data,activeServiceCostContext);
+    const blob=new Blob([html],{type:'text/html;charset=utf-8'});
+    const blobUrl=URL.createObjectURL(blob);
+    const popup=window.open('about:blank','_blank');
+    if(!popup){URL.revokeObjectURL(blobUrl);throw new Error('De browser blokkeert het nieuwe venster. Sta pop-ups toe voor dit dashboard.');}
+    popup.opener=null;
+    popup.location.replace(blobUrl);
+    window.setTimeout(()=>URL.revokeObjectURL(blobUrl),60_000);
+  }catch(error){
+    el('serviceCostModalMessage').textContent='Conceptafrekening kan niet worden gemaakt: '+error.message;
   }
 }
 
@@ -1099,8 +1398,8 @@ function setPage(pageId, title){
   if(objectCsvButton) objectCsvButton.classList.toggle('hidden', pageId!=='objecten');
 
   if(pageId==='financieel'){
-    renderFinancialOverview(filtered());
-    loadCbsIndexData(false);
+    renderFinancialPage(filtered());
+    setFinancialTab(activeFinancialTab);
   }
 }
 
@@ -1160,14 +1459,15 @@ async function checkSession(){
 }
 async function loadData(){
   try{
-    const [pr,cr,tr,mr,dr,hr,rr]=await Promise.all([
+    const [pr,cr,tr,mr,dr,hr,rr,sr]=await Promise.all([
       sb.from('properties').select('*').order('created_at',{ascending:false}),
       sb.from('contracts').select('*'),
       sb.from('tenants').select('*'),
       sb.from('maintenance').select('*'),
       sb.from('property_documents').select('*'),
       sb.from('property_maintenance_history').select('*'),
-      sb.from('rent_increase_proposals').select('*').order('effective_date',{ascending:true})
+      sb.from('rent_increase_proposals').select('*').order('effective_date',{ascending:true}),
+      sb.from('service_cost_settlements').select('*').order('settlement_year',{ascending:false})
     ]);
     [pr,cr,tr,mr,dr,hr].forEach(r=>{if(r.error) throw r.error});
     rawProperties=pr.data||[]; rawContracts=cr.data||[]; rawTenants=tr.data||[]; rawMaintenance=mr.data||[]; rawDocuments=dr.data||[]; rawMaintenanceHistory=hr.data||[];
@@ -1178,6 +1478,14 @@ async function loadData(){
     }else{
       rawRentIncreaseProposals=rr.data||[];
       rentIncreaseSetupReady=true;
+    }
+    if(sr.error){
+      console.warn('Servicekostentabellen nog niet beschikbaar:',sr.error.message);
+      rawServiceCostSettlements=[];
+      serviceCostSetupReady=false;
+    }else{
+      rawServiceCostSettlements=sr.data||[];
+      serviceCostSetupReady=true;
     }
     vastgoedData=normalize(rawProperties, rawContracts, rawTenants, rawMaintenance, rawDocuments, rawMaintenanceHistory);
     el('statusText').textContent=`Live data uit Supabase. Laatst geladen: ${new Date().toLocaleTimeString('nl-NL')}`;
@@ -1316,6 +1624,11 @@ function maintenanceSourceRows(data){
         cost:Number(m.cost||0),
         status:maintenanceStatusLabel(m.status),
         description:m.description||'',
+        is_service_cost:Boolean(m.is_service_cost),
+        service_cost_category:m.service_cost_category||'',
+        settlement_year:m.settlement_year||null,
+        allocation_percentage:m.allocation_percentage??100,
+        service_cost_approved:Boolean(m.service_cost_approved),
         raw:m
       });
     });
@@ -1337,6 +1650,11 @@ function maintenanceSourceRows(data){
       cost:Number(m.cost||0),
       status:maintenanceStatusLabel(m.status),
       description:m.description||'',
+      is_service_cost:Boolean(m.is_service_cost),
+      service_cost_category:m.service_cost_category||'',
+      settlement_year:m.settlement_year||null,
+      allocation_percentage:m.allocation_percentage??100,
+      service_cost_approved:Boolean(m.service_cost_approved),
       raw:m
     });
   });
@@ -1430,6 +1748,11 @@ function openMaintenanceModal(mode, row=null, objectId=''){
   el('mEditSupplier').value = row?.supplier && row.supplier!=='-' ? row.supplier : '';
   el('mEditStatus').value = maintenanceStatusLabel(row?.status);
   el('mEditCost').value = row?.cost || '';
+  el('mEditIsServiceCost').value = row?.is_service_cost ? 'Ja' : 'Nee';
+  el('mEditServiceCostCategory').value = row?.service_cost_category || '';
+  el('mEditSettlementYear').value = row?.settlement_year || '';
+  el('mEditAllocationPercentage').value = row?.allocation_percentage ?? 100;
+  el('mEditServiceCostApproved').value = row?.service_cost_approved ? 'Ja' : 'Nee';
   el('mEditDescription').value = row?.description || '';
   el('deleteMaintenanceRowBtn').classList.toggle('hidden', mode==='new');
   el('maintenanceEditModal').classList.remove('hidden');
@@ -1455,12 +1778,17 @@ async function saveMaintenanceEdit(e){
     supplier:el('mEditSupplier').value||null,
     status:el('mEditStatus').value||'Te plannen',
     cost:numOrNull(el('mEditCost').value),
+    is_service_cost:el('mEditIsServiceCost').value==='Ja',
+    service_cost_category:el('mEditServiceCostCategory').value||null,
+    settlement_year:numOrNull(el('mEditSettlementYear').value),
+    allocation_percentage:numOrNull(el('mEditAllocationPercentage').value)??100,
+    service_cost_approved:el('mEditServiceCostApproved').value==='Ja',
     description:el('mEditDescription').value||null
   };
   let res;
   if(source==='maintenance'){
     const pId=el('mEditPropertyId').value || null;
-    const payload={property_id:pId,title:base.maintenance_type,build_year:base.build_year,completed_date:base.done_date,planned_date:base.planned_date,contractor:base.supplier,cost:base.cost,status:base.status,description:base.description,priority:'Normaal'};
+    const payload={property_id:pId,title:base.maintenance_type,build_year:base.build_year,completed_date:base.done_date,planned_date:base.planned_date,contractor:base.supplier,cost:base.cost,status:base.status,description:base.description,priority:'Normaal',is_service_cost:base.is_service_cost,service_cost_category:base.service_cost_category,settlement_year:base.settlement_year,allocation_percentage:base.allocation_percentage,service_cost_approved:base.service_cost_approved};
     res=await sb.from('maintenance').update(payload).eq('id',id);
   } else if(source==='new') {
     res=await sb.from('property_maintenance_history').insert(base);
@@ -2169,7 +2497,7 @@ function render(){
   el('objectGrid').innerHTML=data.map(r=>`<article class="objectCard">${photoBox(r.foto_url,'objectPhoto',`Foto van ${r.object}`)}<h3>${r.object}</h3><div class="meta">${r.straatnaam} ${r.huisnummer} ${r.stad}</div><div class="row"><span>Huurder</span><strong>${r.huurder}</strong></div><div class="row"><span>Huur p/m</span><strong>${euro(r.huur_pm)}</strong></div><div class="row"><span>Jaarhuur</span><strong>${euro(r.huur_pj)}</strong></div><div class="row"><span>Bruto rendement</span><strong>${r.bruto_rendement===null?'-':pct(r.bruto_rendement)}</strong></div><div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div><div class="row"><span>Onderhoud</span>${statusBadge(r.status_scope)}</div><button class="smallBtn detailBtn" data-id="${r.id}">Details</button><button class="smallBtn editBtn" data-id="${r.id}">Bewerken</button></article>`).join('') || '<p>Geen objecten gevonden.</p>';
   refreshPhotos();
   renderContractOverview(data);
-  renderFinancialOverview(data);
+  renderFinancialPage(data);
   el('contractTable').innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Contractstatus</th><th>Startdatum</th><th>Oorspr. einddatum</th><th>Huidige einddatum</th><th>Opzegtermijn</th><th>Uiterste opzegdatum</th><th>Verlenging</th><th>Status opzegmoment</th><th></th></tr>`+data.map(r=>{
     const originalEnd=r.contract_onbepaalde?'Onbepaalde tijd':dateFmt(r.oorspronkelijke_einddatum_contract);
     const renewalCount=r.aantal_verlengingen?`<span class="subtle">${r.aantal_verlengingen}× toegepast</span>`:'';
@@ -2318,6 +2646,8 @@ function init(){
     const newMaint=e.target.closest('.newMaintBtn');
     const rentEdit=e.target.closest('.rentEditBtn');
     const quickLetter=e.target.closest('.rentQuickLetterBtn');
+    const serviceEdit=e.target.closest('.serviceCostEditBtn');
+    const serviceQuickLetter=e.target.closest('.serviceCostQuickLetterBtn');
     if(detail) renderDetail(detail.dataset.id);
     if(edit) openEditProperty(edit.dataset.id);
     if(upload) uploadDocument(upload.dataset.id);
@@ -2329,12 +2659,19 @@ function init(){
     if(newMaint) openMaintenanceModal('new', null, newMaint.dataset.id || '');
     if(rentEdit) openRentIncreaseModal(rentEdit.dataset.id,rentEdit.dataset.date);
     if(quickLetter){ openRentIncreaseModal(quickLetter.dataset.id,quickLetter.dataset.date); setTimeout(openRentConceptLetter,0); }
+    if(serviceEdit) openServiceCostModal(serviceEdit.dataset.id,serviceEdit.dataset.year);
+    if(serviceQuickLetter){ openServiceCostModal(serviceQuickLetter.dataset.id,serviceQuickLetter.dataset.year); setTimeout(openServiceCostLetter,0); }
   });
   el('loginBtn').addEventListener('click', async()=>{ el('loginError').textContent='Bezig met inloggen...'; const email=el('email').value.trim(); const password=el('password').value; const {error}=await sb.auth.signInWithPassword({email,password}); if(error){ el('loginError').textContent='Inloggen mislukt: '+error.message; return;} el('loginError').textContent=''; showApp(); await loadBranding(); await loadData(); });
   el('password').addEventListener('keydown', e=>{ if(e.key==='Enter') el('loginBtn').click(); });
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; await applyBranding(DEFAULT_BRANDING); showLogin(); });
   el('search').addEventListener('input', e=>{ query=e.target.value; render(); });
-  document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); } if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
+  document.body.addEventListener('change', e=>{
+    if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); }
+    if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); }
+    if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); }
+    if(e.target.id==='serviceCostYear'){ serviceCostYear=Number(e.target.value); renderServiceCostOverview(filtered()); }
+  });
   el('newPropertyBtn').addEventListener('click', openNewProperty);
   const objectCsvInput=el('objectCsvFile');
   if(objectCsvInput){
@@ -2364,6 +2701,13 @@ function init(){
   el('rentProposalStatus')?.addEventListener('change',updateRentApplyButton);
   el('rentLetterBtn')?.addEventListener('click',openRentConceptLetter);
   el('applyRentIncreaseBtn')?.addEventListener('click',applyRentIncrease);
+  document.querySelectorAll('.financialTab').forEach(button=>button.addEventListener('click',()=>setFinancialTab(button.dataset.financialTab)));
+  el('closeServiceCostModalBtn')?.addEventListener('click',closeServiceCostModal);
+  el('serviceCostForm')?.addEventListener('submit',saveServiceCostSettlement);
+  el('serviceMonthsCharged')?.addEventListener('input',updateServiceCostModalCalculation);
+  el('serviceFinalAdvance')?.addEventListener('input',updateServiceCostModalCalculation);
+  el('serviceFinalActual')?.addEventListener('input',updateServiceCostModalCalculation);
+  el('serviceCostLetterBtn')?.addEventListener('click',openServiceCostLetter);
   el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); });
   el('brandingForm').addEventListener('submit',saveBranding);
   el('resetBrandingBtn').addEventListener('click',resetBranding);

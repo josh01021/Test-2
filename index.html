@@ -143,17 +143,39 @@
       </section>
 
       <section id="financieel" class="page">
-        <div class="panel financialIntro">
-          <div>
-            <h2>Huurverhogingen</h2>
-            <p>Het dashboard haalt openbare CPI-cijfers op uit CBS-tabel 86141NED en stelt huurverhogingen als concept op. Controleren en verzenden blijft altijd handmatig.</p>
-          </div>
-          <button id="refreshCbsBtn" class="secondaryBtn" type="button">CBS-cijfers vernieuwen</button>
+        <div class="financialTabs" role="tablist" aria-label="Financiële onderdelen">
+          <button class="financialTab active" type="button" data-financial-tab="rent" role="tab" aria-selected="true">Huurverhogingen</button>
+          <button class="financialTab" type="button" data-financial-tab="service" role="tab" aria-selected="false">Servicekosten</button>
         </div>
-        <p id="financialMessage" class="formMessage financialMessage"></p>
-        <div id="financialOverview"></div>
-        <div class="panel financialTablePanel">
-          <div class="financialTableWrap"><table id="rentIncreaseTable"></table></div>
+
+        <div id="financialRentPanel" class="financialSubPage active">
+          <div class="panel financialIntro">
+            <div>
+              <h2>Huurverhogingen</h2>
+              <p>Het dashboard haalt openbare CPI-cijfers op uit CBS-tabel 86141NED en stelt huurverhogingen als concept op. Controleren en verzenden blijft altijd handmatig.</p>
+            </div>
+            <button id="refreshCbsBtn" class="secondaryBtn" type="button">CBS-cijfers vernieuwen</button>
+          </div>
+          <p id="financialMessage" class="formMessage financialMessage"></p>
+          <div id="financialOverview"></div>
+          <div class="panel financialTablePanel">
+            <div class="financialTableWrap"><table id="rentIncreaseTable"></table></div>
+          </div>
+        </div>
+
+        <div id="financialServicePanel" class="financialSubPage">
+          <div class="panel financialIntro">
+            <div>
+              <h2>Servicekostenafrekeningen</h2>
+              <p>Vergelijk de betaalde voorschotten met onderhoudskosten die je bewust als doorbelastbare servicekosten hebt gemarkeerd. De berekening blijft een concept totdat jullie deze controleren.</p>
+            </div>
+            <label class="serviceYearFilter">Afrekenjaar<select id="serviceCostYear"></select></label>
+          </div>
+          <p id="serviceCostMessage" class="formMessage financialMessage"></p>
+          <div id="serviceCostOverview"></div>
+          <div class="panel financialTablePanel">
+            <div class="financialTableWrap"><table id="serviceCostTable"></table></div>
+          </div>
         </div>
       </section>
 
@@ -298,6 +320,11 @@
           <label>Partij<input id="mEditSupplier"></label>
           <label>Status<select id="mEditStatus"><option>Te plannen</option><option>Gepland</option><option>Afgerond</option></select></label>
           <label>Kosten<input id="mEditCost" type="number" step="0.01"></label>
+          <label>Doorbelasten via servicekosten<select id="mEditIsServiceCost"><option value="Nee">Nee</option><option value="Ja">Ja</option></select></label>
+          <label>Servicekostencategorie<input id="mEditServiceCostCategory" placeholder="Bijvoorbeeld schoonmaak of tuinonderhoud"></label>
+          <label>Afrekenjaar<input id="mEditSettlementYear" type="number" min="2000" max="2200" step="1"></label>
+          <label>Aandeel voor dit object (%)<input id="mEditAllocationPercentage" type="number" min="0" max="100" step="0.01" value="100"></label>
+          <label>Servicekosten gecontroleerd<select id="mEditServiceCostApproved"><option value="Nee">Nee</option><option value="Ja">Ja</option></select></label>
         </div>
         <label>Beschrijving<textarea id="mEditDescription" rows="3"></textarea></label>
         <div class="formActions">
@@ -352,6 +379,50 @@
         </div>
       </form>
       <p id="rentIncreaseMessage" class="formMessage"></p>
+    </div>
+  </div>
+
+
+
+  <div id="serviceCostModal" class="modal hidden">
+    <div class="modalCard largeModal">
+      <div class="modalHeader">
+        <div>
+          <h2 id="serviceCostModalTitle">Servicekostenafrekening controleren</h2>
+          <p id="serviceCostModalMeta" class="meta"></p>
+        </div>
+        <button id="closeServiceCostModalBtn" class="iconBtn" type="button">×</button>
+      </div>
+      <form id="serviceCostForm">
+        <input type="hidden" id="serviceCostSettlementId">
+        <input type="hidden" id="serviceCostPropertyId">
+        <input type="hidden" id="serviceCostContractId">
+        <div class="rentCalculationSummary serviceCostSummary">
+          <div><span>Maandelijks voorschot</span><strong id="serviceMonthlyAdvance">-</strong></div>
+          <div><span>Voorschot berekend</span><strong id="serviceCalculatedAdvance">-</strong></div>
+          <div><span>Werkelijke kosten</span><strong id="serviceCalculatedActual">-</strong></div>
+          <div><span>Saldo</span><strong id="serviceCalculatedBalance">-</strong></div>
+        </div>
+        <div class="formGrid">
+          <label>Afrekenjaar<input id="serviceSettlementYear" type="number" min="2000" max="2200" readonly></label>
+          <label>Status<select id="serviceSettlementStatus"><option value="Concept">Concept</option><option value="Goedgekeurd">Goedgekeurd</option><option value="Verwerkt">Verwerkt</option></select></label>
+          <label>Aantal maanden voorschot<input id="serviceMonthsCharged" type="number" min="0" max="12" step="1" required></label>
+          <label>Definitief betaald voorschot<input id="serviceFinalAdvance" type="number" min="0" step="0.01" required></label>
+          <label>Definitieve werkelijke kosten<input id="serviceFinalActual" type="number" min="0" step="0.01" required></label>
+          <label>Reden handmatige correctie<input id="serviceCorrectionReason" placeholder="Verplicht wanneer bedragen afwijken"></label>
+        </div>
+        <label>Interne opmerkingen<textarea id="serviceSettlementNotes" rows="3" placeholder="Alleen intern zichtbaar"></textarea></label>
+        <div class="serviceCostLinesPanel">
+          <h3>Meegenomen onderhoudskosten</h3>
+          <div class="financialTableWrap"><table id="serviceCostLines"></table></div>
+        </div>
+        <div id="serviceCostWarning" class="rentCbsWarning hidden"></div>
+        <div class="formActions rentFormActions">
+          <button type="button" id="serviceCostLetterBtn" class="secondaryBtn">Conceptafrekening bekijken</button>
+          <button type="submit">Concept opslaan</button>
+        </div>
+      </form>
+      <p id="serviceCostModalMessage" class="formMessage"></p>
     </div>
   </div>
 
