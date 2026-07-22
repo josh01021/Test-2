@@ -1011,8 +1011,16 @@ function isMissingImportValue(value){
 }
 
 function isNoDepositValue(value){
+  const raw=clean(value).toLowerCase();
   const marker=normalizedImportMarker(value);
-  if(isMissingImportValue(value)) return true;
+
+  // Lege waarden en alleen een liggend streepje betekenen: geen waarborgsom.
+  if(!raw || /^[\-–—−]+$/.test(raw) || isMissingImportValue(value)) return true;
+
+  // Accepteer gangbare nulnotaties uit Excel, zoals 0, 0,00, 0.00, € 0 en 0,-.
+  const compact=raw.replace(/\s+/g,'');
+  if(/^(?:€)?0+(?:[.,](?:0+|[-–—−]))?$/.test(compact)) return true;
+
   return [
     'geen waarborgsom','geen borg','geen deposito','zonder waarborgsom',
     'zonder borg','niet van toepassing waarborgsom','niet verschuldigd'
@@ -1147,7 +1155,7 @@ function propertyPayloadFromCsv(record, isNew){
   numberFields.forEach(field=>{
     if(!record.present.has(field)) return;
     if(field==='deposit'){
-      // Een lege cel, n.v.t., “geen waarborgsom” of vergelijkbare tekst wordt als € 0 opgeslagen.
+      // Leeg, n.v.t., 0, een liggend streepje of “geen waarborgsom” wordt als € 0 opgeslagen.
       payload[field]=isNoDepositValue(record[field]) ? 0 : parseImportNumber(record[field],'waarborgsom');
       return;
     }
