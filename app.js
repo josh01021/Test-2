@@ -40,9 +40,67 @@ const DEFAULT_BRANDING={
   favicon_url:''
 };
 let branding={...DEFAULT_BRANDING};
+const brandingSignedUrlCache={};
 function validHex(value,fallback){return /^#[0-9a-f]{6}$/i.test(String(value||''))?value:fallback;}
-function setImage(id,url){const node=el(id);if(!node)return;node.classList.toggle('hidden',!url);if(url)node.src=url;else node.removeAttribute('src');}
-function applyBranding(next={}){
+
+function setImage(id,url){
+  const node=el(id);
+  if(!node) return;
+  node.onerror=()=>{
+    node.classList.add('hidden');
+    node.removeAttribute('src');
+  };
+  if(url){
+    node.src=url;
+    node.classList.remove('hidden');
+  }else{
+    node.classList.add('hidden');
+    node.removeAttribute('src');
+  }
+}
+
+function brandingStoragePath(value){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  if(!/^https?:\/\//i.test(raw)) return raw.replace(/^\/+/, '');
+
+  try{
+    const url=new URL(raw);
+    const markers=[
+      '/storage/v1/object/public/branding/',
+      '/storage/v1/object/sign/branding/',
+      '/storage/v1/object/authenticated/branding/'
+    ];
+    for(const marker of markers){
+      const index=url.pathname.indexOf(marker);
+      if(index!==-1) return decodeURIComponent(url.pathname.slice(index+marker.length));
+    }
+  }catch(error){
+    console.warn('Ongeldige branding-URL:', error.message);
+  }
+  return '';
+}
+
+async function resolveBrandingUrl(value){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  const path=brandingStoragePath(raw);
+
+  // Een externe URL buiten de branding-bucket mag rechtstreeks worden gebruikt.
+  if(/^https?:\/\//i.test(raw) && !path) return raw;
+  if(!path) return '';
+  if(brandingSignedUrlCache[path]) return brandingSignedUrlCache[path];
+
+  const {data,error}=await sb.storage.from('branding').createSignedUrl(path,60*60);
+  if(error){
+    console.warn('Brandingbestand kan niet geladen worden:',error.message);
+    return '';
+  }
+  brandingSignedUrlCache[path]=data.signedUrl;
+  return data.signedUrl;
+}
+
+async function applyBranding(next={}){
   branding={...DEFAULT_BRANDING,...next};
   branding.primary_color=validHex(branding.primary_color,DEFAULT_BRANDING.primary_color);
   branding.accent_color=validHex(branding.accent_color,DEFAULT_BRANDING.accent_color);
@@ -53,12 +111,23 @@ function applyBranding(next={}){
   if(el('loginCompanyName')) el('loginCompanyName').textContent=`${branding.company_name} ${branding.dashboard_name}`.trim();
   if(el('loginSubtitle')) el('loginSubtitle').textContent=branding.login_subtitle;
   document.title=branding.browser_title||`${branding.company_name} | ${branding.dashboard_name}`;
-  const fav=el('faviconLink'); if(fav) fav.href=branding.favicon_url||'data:,';
-  setImage('sidebarLogo',branding.logo_url);setImage('loginLogo',branding.logo_url);setImage('previewLogo',branding.logo_url);
+
+  const [logoUrl,faviconUrl]=await Promise.all([
+    resolveBrandingUrl(branding.logo_url),
+    resolveBrandingUrl(branding.favicon_url)
+  ]);
+
+  // Het logo wordt bewust alleen in het ingelogde dashboard getoond.
+  setImage('sidebarLogo',logoUrl);
+  setImage('previewLogo',logoUrl);
+  const fav=el('faviconLink');
+  if(fav) fav.href=faviconUrl||'data:,';
+
   if(el('previewCompanyName')) el('previewCompanyName').textContent=branding.company_name;
   if(el('previewDashboardName')) el('previewDashboardName').textContent=branding.dashboard_name;
   fillBrandingForm();
 }
+
 function fillBrandingForm(){
   if(!el('brandingCompanyName')) return;
   el('brandingCompanyName').value=branding.company_name||'';
@@ -70,42 +139,90 @@ function fillBrandingForm(){
   el('currentLogoText').textContent=branding.logo_url?'Logo ingesteld':'Nog geen logo ingesteld';
   el('currentFaviconText').textContent=branding.favicon_url?'Favicon ingesteld':'Nog geen favicon ingesteld';
 }
+
 async function loadBranding(){
-  applyBranding(DEFAULT_BRANDING);
+  await applyBranding(DEFAULT_BRANDING);
   try{
     const {data,error}=await sb.from('app_settings').select('*').eq('id',1).maybeSingle();
     if(error) throw error;
-    if(data) applyBranding(data);
-  }catch(error){console.warn('Branding kon niet geladen worden:',error.message);}
+    if(data) await applyBranding(data);
+  }catch(error){
+    console.warn('Branding kon niet geladen worden:',error.message);
+  }
 }
+
 async function uploadBrandingFile(file,folder){
   if(!file) return null;
+  if(!file.type || !file.type.startsWith('image/')) throw new Error('Upload alleen een afbeelding.');
   const path=`${folder}/${Date.now()}-${safeFileName(file.name)}`;
   const up=await sb.storage.from('branding').upload(path,file,{upsert:false,cacheControl:'3600'});
   if(up.error) throw up.error;
-  const {data}=sb.storage.from('branding').getPublicUrl(path);
-  return data.publicUrl;
+  return path; // Bewaar het opslagpad, niet een publieke URL.
 }
+
+async function removeOldBrandingFile(oldValue,newValue){
+  const oldPath=brandingStoragePath(oldValue);
+  const newPath=brandingStoragePath(newValue);
+  if(!oldPath || oldPath===newPath) return;
+  const {error}=await sb.storage.from('branding').remove([oldPath]);
+  if(error) console.warn('Oud brandingbestand kon niet worden verwijderd:',error.message);
+  delete brandingSignedUrlCache[oldPath];
+}
+
 async function saveBranding(e){
-  e.preventDefault(); const msg=el('brandingMessage'); msg.textContent='Bezig met opslaan...';
+  e.preventDefault();
+  const msg=el('brandingMessage');
+  msg.textContent='Bezig met opslaan...';
   try{
+    const previousLogo=branding.logo_url;
+    const previousFavicon=branding.favicon_url;
     const logoFile=el('brandingLogoFile').files?.[0];
     const faviconFile=el('brandingFaviconFile').files?.[0];
-    const logoUrl=await uploadBrandingFile(logoFile,'logos')||branding.logo_url||null;
-    const faviconUrl=await uploadBrandingFile(faviconFile,'favicons')||branding.favicon_url||null;
-    const payload={id:1,company_name:clean(el('brandingCompanyName').value)||DEFAULT_BRANDING.company_name,dashboard_name:clean(el('brandingDashboardName').value)||DEFAULT_BRANDING.dashboard_name,login_subtitle:clean(el('brandingLoginSubtitle').value)||DEFAULT_BRANDING.login_subtitle,browser_title:clean(el('brandingBrowserTitle').value)||null,primary_color:validHex(el('brandingPrimaryColor').value,DEFAULT_BRANDING.primary_color),accent_color:validHex(el('brandingAccentColor').value,DEFAULT_BRANDING.accent_color),logo_url:logoUrl,favicon_url:faviconUrl,updated_at:new Date().toISOString()};
+    const logoPath=await uploadBrandingFile(logoFile,'logos')||branding.logo_url||null;
+    const faviconPath=await uploadBrandingFile(faviconFile,'favicons')||branding.favicon_url||null;
+    const payload={
+      id:1,
+      company_name:clean(el('brandingCompanyName').value)||DEFAULT_BRANDING.company_name,
+      dashboard_name:clean(el('brandingDashboardName').value)||DEFAULT_BRANDING.dashboard_name,
+      login_subtitle:clean(el('brandingLoginSubtitle').value)||DEFAULT_BRANDING.login_subtitle,
+      browser_title:clean(el('brandingBrowserTitle').value)||null,
+      primary_color:validHex(el('brandingPrimaryColor').value,DEFAULT_BRANDING.primary_color),
+      accent_color:validHex(el('brandingAccentColor').value,DEFAULT_BRANDING.accent_color),
+      logo_url:logoPath,
+      favicon_url:faviconPath,
+      updated_at:new Date().toISOString()
+    };
     const res=await sb.from('app_settings').upsert(payload,{onConflict:'id'}).select().single();
     if(res.error) throw res.error;
-    el('brandingLogoFile').value='';el('brandingFaviconFile').value='';applyBranding(res.data);msg.textContent='Instellingen opgeslagen.';
-  }catch(error){console.error(error);msg.textContent='Opslaan mislukt: '+error.message;}
+
+    if(logoFile) await removeOldBrandingFile(previousLogo,logoPath);
+    if(faviconFile) await removeOldBrandingFile(previousFavicon,faviconPath);
+
+    el('brandingLogoFile').value='';
+    el('brandingFaviconFile').value='';
+    await applyBranding(res.data);
+    msg.textContent='Instellingen opgeslagen.';
+  }catch(error){
+    console.error(error);
+    msg.textContent='Opslaan mislukt: '+error.message;
+  }
 }
+
 async function resetBranding(){
   if(!confirm('Standaard huisstijl herstellen? Het huidige logo en favicon worden losgekoppeld.')) return;
+  const oldLogo=branding.logo_url;
+  const oldFavicon=branding.favicon_url;
   const payload={id:1,...DEFAULT_BRANDING,logo_url:null,favicon_url:null,updated_at:new Date().toISOString()};
   const res=await sb.from('app_settings').upsert(payload,{onConflict:'id'}).select().single();
   if(res.error){el('brandingMessage').textContent=res.error.message;return;}
-  applyBranding(res.data);el('brandingMessage').textContent='Standaard huisstijl hersteld.';
+  await Promise.all([
+    removeOldBrandingFile(oldLogo,null),
+    removeOldBrandingFile(oldFavicon,null)
+  ]);
+  await applyBranding(res.data);
+  el('brandingMessage').textContent='Standaard huisstijl hersteld.';
 }
+
 function previewBrandingForm(){
   if(!el('brandingCompanyName')) return;
   document.documentElement.style.setProperty('--brand-primary',validHex(el('brandingPrimaryColor').value,branding.primary_color));
@@ -113,7 +230,6 @@ function previewBrandingForm(){
   el('previewCompanyName').textContent=el('brandingCompanyName').value||DEFAULT_BRANDING.company_name;
   el('previewDashboardName').textContent=el('brandingDashboardName').value||DEFAULT_BRANDING.dashboard_name;
 }
-
 
 async function resolvePhotoUrl(value){
   if(!value) return '';
@@ -195,7 +311,17 @@ function normalize(properties, contracts, tenants, maintenance, documents=[], hi
 }
 function showLogin(){ el('loginView').classList.remove('hidden'); el('appView').classList.add('hidden'); }
 function showApp(){ el('loginView').classList.add('hidden'); el('appView').classList.remove('hidden'); }
-async function checkSession(){ await loadBranding(); const {data}=await sb.auth.getSession(); if(data.session){showApp(); await loadData();} else showLogin(); }
+async function checkSession(){
+  const {data}=await sb.auth.getSession();
+  if(data.session){
+    showApp();
+    await loadBranding();
+    await loadData();
+  }else{
+    await applyBranding(DEFAULT_BRANDING);
+    showLogin();
+  }
+}
 async function loadData(){
   try{
     const [pr,cr,tr,mr,dr,hr]=await Promise.all([sb.from('properties').select('*').order('created_at',{ascending:false}), sb.from('contracts').select('*'), sb.from('tenants').select('*'), sb.from('maintenance').select('*'), sb.from('property_documents').select('*'), sb.from('property_maintenance_history').select('*')]);
@@ -810,9 +936,9 @@ function init(){
   sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   document.querySelectorAll('.nav').forEach(btn=>btn.addEventListener('click',()=>{ selectedPropertyId=null; setPage(btn.dataset.page,btn.textContent); }));
   document.body.addEventListener('click', e=>{ const detail=e.target.closest('.detailBtn'); const edit=e.target.closest('.editBtn'); const upload=e.target.closest('.uploadDocBtn'); const openDoc=e.target.closest('.openDocBtn'); const deleteDoc=e.target.closest('.deleteDocBtn'); const addHist=e.target.closest('.addHistBtn'); const deleteHist=e.target.closest('.deleteHistBtn'); const editMaint=e.target.closest('.editMaintBtn'); const newMaint=e.target.closest('.newMaintBtn'); if(detail) renderDetail(detail.dataset.id); if(edit) openEditProperty(edit.dataset.id); if(upload) uploadDocument(upload.dataset.id); if(openDoc) openDocument(openDoc.dataset.path); if(deleteDoc) deleteDocument(deleteDoc.dataset.id, deleteDoc.dataset.path); if(addHist) addMaintenanceHistory(addHist.dataset.id); if(deleteHist) deleteMaintenanceHistory(deleteHist.dataset.id); if(editMaint){ const row=findMaintenanceRowByKey(editMaint.dataset.key); if(row) openMaintenanceModal('edit', row); } if(newMaint) openMaintenanceModal('new', null, newMaint.dataset.id || ''); });
-  el('loginBtn').addEventListener('click', async()=>{ el('loginError').textContent='Bezig met inloggen...'; const email=el('email').value.trim(); const password=el('password').value; const {error}=await sb.auth.signInWithPassword({email,password}); if(error){ el('loginError').textContent='Inloggen mislukt: '+error.message; return;} el('loginError').textContent=''; showApp(); await loadData(); });
+  el('loginBtn').addEventListener('click', async()=>{ el('loginError').textContent='Bezig met inloggen...'; const email=el('email').value.trim(); const password=el('password').value; const {error}=await sb.auth.signInWithPassword({email,password}); if(error){ el('loginError').textContent='Inloggen mislukt: '+error.message; return;} el('loginError').textContent=''; showApp(); await loadBranding(); await loadData(); });
   el('password').addEventListener('keydown', e=>{ if(e.key==='Enter') el('loginBtn').click(); });
-  el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; showLogin(); });
+  el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; await applyBranding(DEFAULT_BRANDING); showLogin(); });
   el('search').addEventListener('input', e=>{ query=e.target.value; render(); });
   document.body.addEventListener('change', e=>{ if(e.target.id==='maintenanceObjectFilter'){ maintenanceObjectFilter=e.target.value; render(); } if(e.target.id==='maintenanceTypeFilter'){ maintenanceTypeFilter=e.target.value; render(); } if(e.target.id==='maintenanceStatusFilter'){ maintenanceStatusFilter=e.target.value; render(); } });
   el('newPropertyBtn').addEventListener('click', openNewProperty);

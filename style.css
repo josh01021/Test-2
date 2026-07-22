@@ -77,3 +77,89 @@
 .loginBranding{text-align:center;margin-bottom:12px}.loginLogo{display:block;max-width:180px;max-height:86px;object-fit:contain;margin:0 auto 18px}.loginBranding h1{margin:0 0 8px}.loginBranding p{margin:0 0 18px}
 .settingsPanel{max-width:980px}.settingsIntro{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;margin-bottom:22px}.settingsIntro h2{margin:0 0 6px}.settingsIntro p{margin:0;color:#64748b}.brandingPreview{min-width:260px;background:var(--brand-primary);color:white;border-radius:16px;padding:18px;display:flex;align-items:center;gap:12px}.previewLogo{width:48px;height:48px;object-fit:contain;border-radius:10px;background:rgba(255,255,255,.08);padding:4px}.brandingPreview strong,.brandingPreview span{display:block}.brandingPreview span{color:var(--brand-accent);margin-top:3px}.currentBrandingFiles{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.currentBrandingFiles span{background:#f1f5f9;border-radius:999px;padding:7px 10px;color:#475569;font-size:13px}
 @media(max-width:700px){.settingsIntro{display:block}.brandingPreview{margin-top:14px;min-width:0}.brandBlock{grid-column:1/-1}}
+
+
+/* v18: private branding en verticale sidebar-branding */
+.sidebar{
+  width:290px;
+  flex:0 0 290px;
+  padding:28px 24px;
+}
+.brandBlock{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:14px;
+  width:100%;
+  margin-bottom:34px;
+}
+.sidebarLogo{
+  width:auto;
+  max-width:150px;
+  height:72px;
+  max-height:72px;
+  object-fit:contain;
+  object-position:left center;
+  border-radius:0;
+  background:transparent;
+  padding:0;
+}
+.brandText{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  width:100%;
+  min-width:0;
+  line-height:1.12;
+}
+.brandText strong{
+  display:block;
+  width:100%;
+  color:#fff;
+  font-size:23px;
+  line-height:1.2;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.brandText span{
+  display:block;
+  margin-top:7px;
+  color:var(--brand-accent);
+  font-size:22px;
+  font-weight:800;
+  line-height:1.15;
+  white-space:nowrap;
+}
+.brandingPreview{
+  flex-direction:column;
+  align-items:flex-start;
+}
+.previewLogo{
+  width:auto;
+  max-width:140px;
+  height:64px;
+  object-fit:contain;
+  object-position:left center;
+  border-radius:0;
+  background:transparent;
+  padding:0;
+}
+.previewBrandText strong,
+.previewBrandText span{
+  white-space:nowrap;
+}
+@media(max-width:900px){
+  .sidebar{
+    width:100%;
+    height:auto;
+    padding:20px 18px;
+  }
+  .brandBlock{
+    grid-column:1/-1;
+    margin-bottom:12px;
+  }
+  .sidebarLogo{height:58px;max-height:58px;max-width:130px}
+  .brandText strong{font-size:21px}
+  .brandText span{font-size:20px}
+}
