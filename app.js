@@ -992,9 +992,47 @@ function csvCell(row,map,field){
   return index===undefined ? '' : clean(row[index]);
 }
 
+function normalizedImportMarker(value){
+  return clean(value)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/[._/\\-]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function isMissingImportValue(value){
+  const marker=normalizedImportMarker(value);
+  if(!marker) return true;
+  return [
+    'nvt','n v t','niet van toepassing','geen','geen waarde','niet aanwezig',
+    'onbekend','null','nihil','leeg','geen gegevens','geen data'
+  ].includes(marker);
+}
+
+function isNoDepositValue(value){
+  const marker=normalizedImportMarker(value);
+  if(isMissingImportValue(value)) return true;
+  return [
+    'geen waarborgsom','geen borg','geen deposito','zonder waarborgsom',
+    'zonder borg','niet van toepassing waarborgsom','niet verschuldigd'
+  ].includes(marker);
+}
+
+function isIndefiniteContractValue(value){
+  const marker=normalizedImportMarker(value);
+  if(!marker) return false;
+  return marker.includes('onbepaalde')
+    || marker.includes('onbepaald')
+    || marker.includes('zonder einddatum')
+    || marker.includes('geen einddatum')
+    || marker.includes('doorlopend')
+    || marker.includes('indefinite');
+}
+
 function parseImportNumber(value, label='getal'){
   const raw=clean(value);
-  if(!raw) return null;
+  if(isMissingImportValue(raw)) return null;
   let normalized=raw.replace(/[€%\s]/g,'');
   if(normalized.includes(',') && normalized.includes('.')){
     normalized=normalized.lastIndexOf(',')>normalized.lastIndexOf('.')
@@ -1022,7 +1060,7 @@ function parseContractPeriodNumber(value,label){
 
 function parseObjectImportDate(value){
   const raw=clean(value);
-  if(!raw || norm(raw).includes('onbepaalde')) return null;
+  if(isMissingImportValue(raw) || isIndefiniteContractValue(raw)) return null;
   if(/^\d+(?:[.,]\d+)?$/.test(raw)){
     const serial=Number(raw.replace(',','.'));
     if(serial>=20000 && serial<=80000){
@@ -1107,7 +1145,13 @@ function propertyPayloadFromCsv(record, isNew){
   });
   const numberFields=['monthly_rent','yearly_rent','service_costs','deposit','purchase_value','woz_value','mortgage_value','mortgage_interest'];
   numberFields.forEach(field=>{
-    if(record.present.has(field)) payload[field]=field==='deposit' && !record[field] ? 0 : parseImportNumber(record[field],field);
+    if(!record.present.has(field)) return;
+    if(field==='deposit'){
+      // Een lege cel, n.v.t., “geen waarborgsom” of vergelijkbare tekst wordt als € 0 opgeslagen.
+      payload[field]=isNoDepositValue(record[field]) ? 0 : parseImportNumber(record[field],'waarborgsom');
+      return;
+    }
+    payload[field]=parseImportNumber(record[field],field);
   });
   const dateFields=['energy_label_valid_until','scope_valid_until','purchase_date'];
   dateFields.forEach(field=>{
@@ -1181,15 +1225,18 @@ async function importObjectCsv(){
           }
         }
 
-        const indefinite=norm(record.contract_term).includes('onbepaalde') || norm(record.contract_end_date).includes('onbepaalde') || norm(record.renewal_period_years).includes('onbepaalde');
+        const indefinite=isIndefiniteContractValue(record.contract_term)
+          || isIndefiniteContractValue(record.contract_end_date)
+          || isIndefiniteContractValue(record.renewal_period_years)
+          || isIndefiniteContractValue(record.contract_status);
         const hasContractData=tenant || ['contract_start_date','contract_end_date','contract_notice_date','notice_period_months','renewal_period_years','contract_term','contract_status'].some(field=>record.present.has(field) && record[field]);
         if(hasContractData){
           const contractPayload={property_id:property.id};
           if(tenant) contractPayload.tenant_id=tenant.id;
           if(record.present.has('contract_start_date')) contractPayload.start_date=parseObjectImportDate(record.contract_start_date);
           if(record.present.has('contract_end_date') || indefinite) contractPayload.end_date=indefinite ? null : parseObjectImportDate(record.contract_end_date);
-          if(record.present.has('notice_period_months')) contractPayload.notice_period_months=parseContractPeriodNumber(record.notice_period_months,'opzegtermijn');
-          if(record.present.has('renewal_period_years')) contractPayload.renewal_period_years=indefinite ? null : parseContractPeriodNumber(record.renewal_period_years,'verlengtermijn');
+          if(record.present.has('notice_period_months')) contractPayload.notice_period_months=isMissingImportValue(record.notice_period_months) ? null : parseContractPeriodNumber(record.notice_period_months,'opzegtermijn');
+          if(record.present.has('renewal_period_years')) contractPayload.renewal_period_years=(indefinite || isMissingImportValue(record.renewal_period_years)) ? null : parseContractPeriodNumber(record.renewal_period_years,'verlengtermijn');
           if(record.present.has('contract_notice_date')) contractPayload.notice_date=parseObjectImportDate(record.contract_notice_date);
           else if(contractPayload.end_date && contractPayload.notice_period_months) contractPayload.notice_date=shiftIsoMonths(contractPayload.end_date,-contractPayload.notice_period_months);
           if(record.present.has('monthly_rent')) contractPayload.monthly_rent=parseImportNumber(record.monthly_rent,'maandhuur');
