@@ -232,7 +232,12 @@
           <label>Opzegtermijn (maanden)<input id="contractNoticePeriodMonths" type="number" min="0" step="1" placeholder="Bijvoorbeeld 12"></label>
           <label>Uiterste opzegdatum<input id="contractNoticeDate" type="date"></label>
           <label>Verlenging bij niet-opzeggen (jaren)<input id="contractRenewalPeriodYears" type="number" min="0" step="1" placeholder="Bijvoorbeeld 5"></label>
-          <label>Contractstatus<input id="contractStatus" value="Actief"></label>
+          <label>Contractstatus
+            <select id="contractStatus">
+              <option value="Actief">Actief</option>
+              <option value="Opgezegd">Opgezegd</option>
+            </select>
+          </label>
         </div>
         <p class="formHint">Laat de uiterste opzegdatum leeg om deze automatisch te berekenen vanuit de einddatum en opzegtermijn. Bij een gemist opzegmoment berekent het dashboard automatisch de nieuwe eind- en opzegdatum.</p>
 
