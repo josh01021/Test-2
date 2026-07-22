@@ -795,9 +795,19 @@ function propertyOptions(selectedId=''){
     .map(r=>`<option value="${r.id}" ${r.id===selectedId?'selected':''}>${r.object} ${r.straatnaam?`- ${r.straatnaam} ${r.huisnummer}`:''}</option>`)
     .join('');
 }
+function compareMaintenanceType(a,b){
+  const aType=typeof a==='string' ? a : (a?.type || a?.maintenance_type || a?.title || '');
+  const bType=typeof b==='string' ? b : (b?.type || b?.maintenance_type || b?.title || '');
+  return String(aType).localeCompare(String(bType),'nl',{sensitivity:'base',numeric:true});
+}
 function maintenanceRowTable(rows){
+  const sortedRows=[...rows].sort((a,b)=>{
+    const typeCompare=compareMaintenanceType(a,b);
+    if(typeCompare!==0) return typeCompare;
+    return String(a.planned_date||a.done_date||'9999').localeCompare(String(b.planned_date||b.done_date||'9999'));
+  });
   return `<table class="maintenanceObjectTable"><tr><th>Type</th><th>Bouwjaar</th><th>Gedaan</th><th>Planning</th><th>Partij</th><th>Kosten</th><th>Status</th><th>Acties</th></tr>`+
-    rows.map(r=>`<tr><td>${r.type}</td><td>${r.build_year||'-'}</td><td>${maintenanceDateFmt(r.done_date)}</td><td>${maintenanceDateFmt(r.planned_date)}</td><td>${r.supplier||'-'}</td><td>${euro(r.cost||0)}</td><td>${statusBadge([r.status||'-', maintStatusClass(r.status,r.planned_date)])}</td><td><button class="miniLink editMaintBtn" data-key="${escAttr(r.key)}">Bewerk</button>${r.objectId?` <button class="miniLink detailBtn" data-id="${r.objectId}">Open object</button>`:''}</td></tr>`).join('') + `</table>`;
+    sortedRows.map(r=>`<tr><td>${r.type}</td><td>${r.build_year||'-'}</td><td>${maintenanceDateFmt(r.done_date)}</td><td>${maintenanceDateFmt(r.planned_date)}</td><td>${r.supplier||'-'}</td><td>${euro(r.cost||0)}</td><td>${statusBadge([r.status||'-', maintStatusClass(r.status,r.planned_date)])}</td><td><button class="miniLink editMaintBtn" data-key="${escAttr(r.key)}">Bewerk</button>${r.objectId?` <button class="miniLink detailBtn" data-id="${r.objectId}">Open object</button>`:''}</td></tr>`).join('') + `</table>`;
 }
 function renderMaintenanceOverview(data){
   const allRows=maintenanceSourceRows(data);
@@ -818,12 +828,12 @@ function renderMaintenanceOverview(data){
     );
     if(addressCompare!==0) return addressCompare;
 
-    const dateCompare=String(a.planned_date||a.done_date||'9999').localeCompare(
+    const typeCompare=compareMaintenanceType(a,b);
+    if(typeCompare!==0) return typeCompare;
+
+    return String(a.planned_date||a.done_date||'9999').localeCompare(
       String(b.planned_date||b.done_date||'9999')
     );
-    if(dateCompare!==0) return dateCompare;
-
-    return String(a.type||'').localeCompare(String(b.type||''),'nl',{sensitivity:'base',numeric:true});
   });
   const overdue=rowsAll.filter(r=>{const d=daysUntil(r.planned_date); return d!==null && d<0 && maintStatusClass(r.status,r.planned_date)!=='ok';}).length;
   const upcoming90=rowsAll.filter(r=>{const d=daysUntil(r.planned_date); return d!==null && d>=0 && d<=90;}).length;
@@ -838,7 +848,7 @@ function renderMaintenanceOverview(data){
     if(aProperty && bProperty) return compareObjectAddress(aProperty,bProperty);
     return String(a[1]).localeCompare(String(b[1]),'nl',{sensitivity:'base',numeric:true});
   });
-  const types=[...new Set(allRows.map(r=>r.type).filter(Boolean))].sort();
+  const types=[...new Set(allRows.map(r=>r.type).filter(Boolean))].sort(compareMaintenanceType);
   const statuses=[...new Set(allRows.map(r=>r.status).filter(Boolean))].sort();
   const filterHtml=`<div class="maintenanceFilters maintenanceFiltersWide"><label>Object<select id="maintenanceObjectFilter"><option value="">Alle objecten</option>${objects.map(([key,name])=>`<option value="${escAttr(key)}" ${maintenanceObjectFilter===key?'selected':''}>${name}</option>`).join('')}</select></label><label>Type<select id="maintenanceTypeFilter"><option value="">Alle types</option>${types.map(t=>`<option ${maintenanceTypeFilter===t?'selected':''}>${t}</option>`).join('')}</select></label><label>Status<select id="maintenanceStatusFilter"><option value="">Alle statussen</option>${statuses.map(st=>`<option ${maintenanceStatusFilter===st?'selected':''}>${st}</option>`).join('')}</select></label></div>`;
   const summaryHtml=`<div class="cards maintenanceCards"><div class="card"><span>Totaal regels</span><strong>${rowsAll.length}</strong></div><div class="card"><span>Komende 90 dagen</span><strong>${upcoming90}</strong></div><div class="card"><span>Verlopen</span><strong>${overdue}</strong></div><div class="card"><span>Open</span><strong>${open}</strong></div><div class="card"><span>Totale kosten</span><strong>${euro(totalCost)}</strong></div></div>`;
