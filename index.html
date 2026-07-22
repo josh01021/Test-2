@@ -85,7 +85,7 @@
           <div class="card"><span>Maandhuur excl.</span><strong id="totalMonthlyRent">-</strong></div>
           <div class="card"><span>Jaarhuur excl.</span><strong id="totalRent">-</strong></div>
           <div class="card"><span>Urgente meldingen</span><strong id="urgentCount">-</strong></div>
-          <div class="card"><span>Contracten &lt; 12 mnd</span><strong id="contractSoon">-</strong></div>
+          <div class="card"><span>Opzegmoment &lt; 12 mnd</span><strong id="contractSoon">-</strong></div>
           <div class="card"><span>Onderhoud &lt; 90 dagen</span><strong id="maintenanceSoon">-</strong></div>
           <div class="card"><span>Energielabel &lt; 180 dagen</span><strong id="energySoon">-</strong></div>
           <div class="card"><span>Leegstand / geen huurder</span><strong id="vacancyCount">-</strong></div>
@@ -126,7 +126,10 @@
       </section>
 
       <section id="contracten" class="page">
-        <div class="panel"><table id="contractTable"></table></div>
+        <div id="contractOverview"></div>
+        <div class="panel contractTablePanel">
+          <div class="contractTableWrap"><table id="contractTable"></table></div>
+        </div>
       </section>
 
       <section id="onderhoud" class="page">
@@ -225,10 +228,13 @@
         <h3>Contract</h3>
         <div class="formGrid">
           <label>Startdatum<input id="contractStartDate" type="date"></label>
-          <label>Einddatum<input id="contractEndDate" type="date"></label>
-          <label>Opzegdatum<input id="contractNoticeDate" type="date"></label>
+          <label>Oorspronkelijke einddatum<input id="contractEndDate" type="date"></label>
+          <label>Opzegtermijn (maanden)<input id="contractNoticePeriodMonths" type="number" min="0" step="1" placeholder="Bijvoorbeeld 12"></label>
+          <label>Uiterste opzegdatum<input id="contractNoticeDate" type="date"></label>
+          <label>Verlenging bij niet-opzeggen (jaren)<input id="contractRenewalPeriodYears" type="number" min="0" step="1" placeholder="Bijvoorbeeld 5"></label>
           <label>Contractstatus<input id="contractStatus" value="Actief"></label>
         </div>
+        <p class="formHint">Laat de uiterste opzegdatum leeg om deze automatisch te berekenen vanuit de einddatum en opzegtermijn. Bij een gemist opzegmoment berekent het dashboard automatisch de nieuwe eind- en opzegdatum.</p>
 
         <h3>Onderhoud</h3>
         <div class="formGrid">
