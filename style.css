@@ -374,3 +374,34 @@
   .brandText strong{font-size:21px}
   .brandText span{font-size:20px}
 }
+
+/* v22: objecten-CSV knop gelijk aan onderhoud en nette importmeldingen */
+.headerActions #newPropertyBtn,
+.headerCsvButton{
+  min-height:52px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 18px;
+  margin:0;
+  border-radius:12px;
+  white-space:nowrap;
+  line-height:1;
+}
+#objectImportMessage:empty,
+#maintenanceImportMessage:empty,
+#objectImportResults:empty,
+#maintenanceImportResults:empty{
+  display:none;
+}
+#objectImportResults,
+#maintenanceImportResults{
+  margin-bottom:14px;
+}
+@media(max-width:900px){
+  .headerActions #newPropertyBtn,
+  .headerCsvButton{
+    min-height:46px;
+    padding:0 15px;
+  }
+}
