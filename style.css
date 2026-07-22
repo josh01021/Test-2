@@ -470,3 +470,73 @@
 @media(max-width:480px){
   .contractSummaryCards{grid-template-columns:1fr}
 }
+
+/* v32: Financieel / gecontroleerde huurverhogingen */
+.financialIntro{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+}
+.financialIntro h2{margin:0 0 7px}
+.financialIntro p{margin:0;color:#64748b;max-width:780px;line-height:1.55}
+.financialIntro .secondaryBtn{margin:0;white-space:nowrap}
+.financialMessage{margin:0 0 12px}
+.financialMessage:empty{display:none}
+.financialSummaryCards{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}
+.financialTablePanel{padding:0;overflow:hidden}
+.financialTableWrap{width:100%;overflow-x:auto}
+#rentIncreaseTable{min-width:1180px}
+#rentIncreaseTable td{vertical-align:top}
+#rentIncreaseTable td:first-child{min-width:190px}
+.financialSource{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  margin:0 0 16px;
+  padding:12px 14px;
+  border:1px solid #dbe4ef;
+  border-radius:14px;
+  background:#f8fafc;
+  color:#475569;
+  font-size:13px;
+}
+.financialSource strong{color:#172033}
+.financialActionGroup{display:flex;gap:7px;flex-wrap:wrap}
+.financialActionGroup .miniLink{margin-top:0}
+.rentCalculationSummary{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin:18px 0;
+}
+.rentCalculationSummary>div{
+  padding:14px;
+  border:1px solid #e2e8f0;
+  border-radius:14px;
+  background:#f8fafc;
+}
+.rentCalculationSummary span{display:block;color:#64748b;font-size:12px;margin-bottom:5px}
+.rentCalculationSummary strong{font-size:19px}
+.rentCbsWarning{
+  margin-top:14px;
+  padding:12px 14px;
+  border:1px solid #fde68a;
+  border-radius:12px;
+  background:#fffbeb;
+  color:#854d0e;
+  font-size:13px;
+  line-height:1.5;
+}
+.rentFormActions{flex-wrap:wrap}
+.rentStatusText{display:block;margin-top:5px;color:#64748b;font-size:12px;line-height:1.35}
+@media(max-width:900px){
+  .financialIntro{display:block}
+  .financialIntro .secondaryBtn{margin-top:14px}
+  .rentCalculationSummary{grid-template-columns:1fr 1fr}
+}
+@media(max-width:520px){
+  .rentCalculationSummary{grid-template-columns:1fr}
+  .financialSummaryCards{grid-template-columns:1fr}
+}

@@ -51,6 +51,436 @@ const isExternalUrl = value => /^https?:\/\//i.test(String(value || ''));
 const escAttr = value => String(value || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const escHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 
+const CBS_CPI_BASE='https://datasets.cbs.nl/odata/v1/CBS/86141NED';
+const CBS_TABLE_ID='86141NED';
+const RENT_REFERENCE_OFFSET_MONTHS=4;
+const RENT_OLD_REFERENCE_OFFSET_MONTHS=16;
+let rawRentIncreaseProposals=[];
+let rentIncreaseSetupReady=true;
+let cbsIndexCache={loaded:false,loading:null,loadedAt:null,measureCode:'',categoryCode:'',values:new Map(),error:''};
+let activeRentContext=null;
+const euro2=n=>new Intl.NumberFormat('nl-NL',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0));
+
+async function fetchODataAll(url){
+  const rows=[];
+  let nextUrl=url;
+  let requests=0;
+  while(nextUrl){
+    if(++requests>50) throw new Error('De CBS-respons bevatte te veel pagina’s.');
+    const response=await fetch(nextUrl,{headers:{Accept:'application/json'}});
+    if(!response.ok) throw new Error(`CBS gaf foutcode ${response.status}.`);
+    const json=await response.json();
+    rows.push(...(json.value||[]));
+    nextUrl=json['@odata.nextLink']||null;
+    if(nextUrl && !/^https?:/i.test(nextUrl)) nextUrl=new URL(nextUrl,CBS_CPI_BASE).href;
+  }
+  return rows;
+}
+
+function normalizeCbsTitle(value){
+  return clean(value)
+    .replace(/\*/g,'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function cbsNumber(value){
+  if(value===null||value===undefined||value==='') return null;
+  const number=Number(String(value).replace(',','.'));
+  return Number.isFinite(number)?number:null;
+}
+
+async function loadCbsIndexData(force=false){
+  if(cbsIndexCache.loading) return cbsIndexCache.loading;
+  if(cbsIndexCache.loaded&&!force) return cbsIndexCache;
+  const message=el('financialMessage');
+  if(message) message.textContent='Openbare CBS CPI-cijfers worden opgehaald...';
+
+  cbsIndexCache.loading=(async()=>{
+    try{
+      const [measureCodes,categoryCodes,periodCodes]=await Promise.all([
+        fetchODataAll(`${CBS_CPI_BASE}/MeasureCodes`),
+        fetchODataAll(`${CBS_CPI_BASE}/BestedingscategorieenCodes`),
+        fetchODataAll(`${CBS_CPI_BASE}/PeriodenCodes`)
+      ]);
+      const measure=measureCodes.find(item=>{
+        const title=normalizeCbsTitle(item.Title);
+        return title==='cpi'||(title.startsWith('cpi ')&&!title.includes('afgeleid')&&!title.includes('jaarmutatie'));
+      });
+      const category=categoryCodes.find(item=>clean(item.Identifier)==='000000')
+        || categoryCodes.find(item=>normalizeCbsTitle(item.Title).includes('alle bestedingen'));
+      if(!measure) throw new Error('De meetwaarde “CPI” is niet gevonden in CBS-tabel 86141NED.');
+      if(!category) throw new Error('De categorie “000000 Alle bestedingen” is niet gevonden.');
+
+      const filter=`Bestedingscategorieen eq '${String(category.Identifier).replace(/'/g,"''")}' and Measure eq '${String(measure.Identifier).replace(/'/g,"''")}'`;
+      const observations=await fetchODataAll(`${CBS_CPI_BASE}/Observations?$filter=${encodeURIComponent(filter)}`);
+      const periods=Object.fromEntries(periodCodes.map(item=>[item.Identifier,item.Title]));
+      const values=new Map();
+      observations.forEach(item=>{
+        const title=periods[item.Perioden]||item.Perioden||'';
+        const normalized=normalizeCbsTitle(title);
+        const value=cbsNumber(item.Value??item.ValueNumeric??item.NumericValue);
+        const match=normalized.match(/^(\d{4})\s+(januari|februari|maart|april|mei|juni|juli|augustus|september|oktober|november|december)$/);
+        if(!match||value===null) return;
+        const month=monthMap[match[2]]+1;
+        const key=`${match[1]}-${String(month).padStart(2,'0')}`;
+        values.set(key,{
+          key,
+          title:title.replace(/\*/g,'').trim(),
+          value,
+          provisional:String(title).includes('*')||String(item.ValueAttribute||'').toLowerCase().includes('voorlopig'),
+          periodCode:item.Perioden
+        });
+      });
+      if(!values.size) throw new Error('Er zijn geen maandelijkse CPI-indexcijfers gevonden.');
+      cbsIndexCache={loaded:true,loading:null,loadedAt:new Date(),measureCode:measure.Identifier,categoryCode:category.Identifier,values,error:''};
+      if(message) message.textContent='';
+      renderFinancialOverview(filtered());
+      return cbsIndexCache;
+    }catch(error){
+      console.error('CBS ophalen mislukt',error);
+      cbsIndexCache={...cbsIndexCache,loaded:false,loading:null,error:error.message};
+      if(message) message.textContent=`CBS-cijfers konden niet automatisch worden geladen: ${error.message} Je kunt de CPI-cijfers bij een voorstel handmatig invullen.`;
+      renderFinancialOverview(filtered());
+      return cbsIndexCache;
+    }
+  })();
+  return cbsIndexCache.loading;
+}
+
+function monthKeyFromIso(value){
+  const parts=isoParts(value);
+  return parts?`${parts.year}-${String(parts.month).padStart(2,'0')}`:'';
+}
+
+function longMonthYear(value){
+  const parts=isoParts(value);
+  if(!parts) return '-';
+  return new Intl.DateTimeFormat('nl-NL',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(Date.UTC(parts.year,parts.month-1,1)));
+}
+
+function rentIncreaseEffectiveDate(r){
+  const monthIndex=monthMap[norm(r.maand_huurverhoging)];
+  if(monthIndex===undefined) return null;
+  const today=new Date();
+  let year=today.getFullYear();
+  if(monthIndex<today.getMonth()) year++;
+  let target=`${year}-${String(monthIndex+1).padStart(2,'0')}-01`;
+  const processed=rawRentIncreaseProposals.some(p=>p.contract_id===r.contract?.id&&p.effective_date===target&&p.status==='Verwerkt');
+  if(processed) target=`${year+1}-${String(monthIndex+1).padStart(2,'0')}-01`;
+  return target;
+}
+
+function rentReferencePeriods(effectiveDate){
+  return {
+    newDate:shiftIsoMonths(effectiveDate,-RENT_REFERENCE_OFFSET_MONTHS),
+    oldDate:shiftIsoMonths(effectiveDate,-RENT_OLD_REFERENCE_OFFSET_MONTHS)
+  };
+}
+
+function proposalFor(contractId,effectiveDate){
+  return rawRentIncreaseProposals.find(p=>p.contract_id===contractId&&p.effective_date===effectiveDate)||null;
+}
+
+function calculateRentValues(currentRent,oldIndex,newIndex){
+  const current=Number(currentRent),oldValue=Number(oldIndex),newValue=Number(newIndex);
+  if(!Number.isFinite(current)||current<=0||!Number.isFinite(oldValue)||oldValue<=0||!Number.isFinite(newValue)||newValue<=0){
+    return {percentage:null,rent:null};
+  }
+  const percentage=((newValue/oldValue)-1)*100;
+  return {percentage,rent:Math.round((current*(newValue/oldValue))*100)/100};
+}
+
+function rentRowContext(r){
+  const effectiveDate=rentIncreaseEffectiveDate(r);
+  const periods=effectiveDate?rentReferencePeriods(effectiveDate):{newDate:null,oldDate:null};
+  const newCpi=periods.newDate?cbsIndexCache.values.get(monthKeyFromIso(periods.newDate)):null;
+  const oldCpi=periods.oldDate?cbsIndexCache.values.get(monthKeyFromIso(periods.oldDate)):null;
+  const proposal=effectiveDate?proposalFor(r.contract?.id,effectiveDate):null;
+  const calculated=calculateRentValues(r.huur_pm,proposal?.old_index??oldCpi?.value,proposal?.new_index??newCpi?.value);
+  return {r,effectiveDate,periods,newCpi,oldCpi,proposal,calculated};
+}
+
+function rentContextStatus(context){
+  const {r,effectiveDate,newCpi,oldCpi,proposal}=context;
+  if(!r.contract?.id) return ['Geen contract','danger'];
+  if(r.contract_opgezegd) return ['Contract opgezegd','warning'];
+  if(!r.maand_huurverhoging) return ['Maand ontbreekt','warning'];
+  if(!Number(r.huur_pm)) return ['Huur ontbreekt','danger'];
+  if(proposal?.status==='Verwerkt') return ['Verwerkt','ok'];
+  if(proposal?.status==='Goedgekeurd') return ['Goedgekeurd','ok'];
+  if(proposal) return ['Concept','warning'];
+  if(!effectiveDate) return ['Controle nodig','warning'];
+  if(!newCpi||!oldCpi) return ['CBS-cijfer ontbreekt','warning'];
+  if(newCpi.provisional||oldCpi.provisional) return ['Voorlopig CBS-cijfer','warning'];
+  return ['Klaar voor concept','ok'];
+}
+
+function renderFinancialOverview(data){
+  const overview=el('financialOverview');
+  const table=el('rentIncreaseTable');
+  if(!overview||!table) return;
+  const eligible=data.filter(r=>r.contract?.id&&!r.contract_opgezegd);
+  const contexts=eligible.map(rentRowContext);
+  const today=isoToday();
+  const soon=contexts.filter(c=>{const d=daysUntil(c.effectiveDate);return d!==null&&d>=0&&d<=90;}).length;
+  const concepts=contexts.filter(c=>c.proposal?.status==='Concept').length;
+  const approved=contexts.filter(c=>c.proposal?.status==='Goedgekeurd').length;
+  const processed=rawRentIncreaseProposals.filter(p=>p.status==='Verwerkt').length;
+  const needsCheck=contexts.filter(c=>['danger','warning'].includes(rentContextStatus(c)[1])&&!['Concept','Goedgekeurd','Verwerkt'].includes(rentContextStatus(c)[0])).length;
+  const cbsText=cbsIndexCache.loadedAt
+    ? `Laatst opgehaald: ${cbsIndexCache.loadedAt.toLocaleString('nl-NL')}`
+    : (cbsIndexCache.error?'CBS-koppeling niet beschikbaar; handmatige invoer blijft mogelijk.':'CBS-cijfers worden automatisch geladen.');
+  overview.innerHTML=`<div class="financialSource"><span><strong>Bron:</strong> CBS 86141NED · CPI 2025=100 · 000000 Alle bestedingen</span><span>${cbsText}</span></div>
+  <div class="cards financialSummaryCards">
+    <div class="card"><span>Binnen 90 dagen</span><strong>${soon}</strong></div>
+    <div class="card"><span>Concepten</span><strong>${concepts}</strong></div>
+    <div class="card"><span>Controle nodig</span><strong>${needsCheck}</strong></div>
+    <div class="card"><span>Goedgekeurd</span><strong>${approved}</strong></div>
+    <div class="card"><span>Verwerkt</span><strong>${processed}</strong></div>
+  </div>`;
+
+  const rows=contexts.sort((a,b)=>String(a.effectiveDate||'9999').localeCompare(String(b.effectiveDate||'9999'))||compareObjectAddress(a.r,b.r));
+  table.innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Ingangsdatum</th><th>Referentiemaanden</th><th>Huidige huur</th><th>Voorstel</th><th>Status</th><th>Acties</th></tr>`+
+    rows.map(context=>{
+      const {r,effectiveDate,periods,newCpi,oldCpi,proposal,calculated}=context;
+      const status=rentContextStatus(context);
+      const finalRent=proposal?.final_rent??calculated.rent;
+      const cpiText=periods.newDate&&periods.oldDate
+        ? `${longMonthYear(periods.newDate)} / ${longMonthYear(periods.oldDate)}<span class="rentStatusText">${newCpi?String(newCpi.value).replace('.',','):'-'} / ${oldCpi?String(oldCpi.value).replace('.',','):'-'}</span>`
+        : '-';
+      const actionLabel=proposal?'Bekijken':'Berekenen';
+      return `<tr>
+        <td><strong>${escHtml(r.object)}</strong><span class="subtle">${escHtml([r.straatnaam,r.huisnummer].filter(Boolean).join(' '))}</span></td>
+        <td>${escHtml(r.huurder)}</td>
+        <td>${dateFmt(effectiveDate)}</td>
+        <td>${cpiText}</td>
+        <td>${euro2(r.huur_pm)}</td>
+        <td>${finalRent?euro2(finalRent):'-'}${calculated.percentage!==null?`<span class="rentStatusText">${calculated.percentage.toFixed(2).replace('.',',')}%</span>`:''}</td>
+        <td>${statusBadge(status)}</td>
+        <td><div class="financialActionGroup"><button class="miniLink rentEditBtn" data-id="${r.id}" data-date="${effectiveDate||''}">${actionLabel}</button>${proposal?`<button class="miniLink rentQuickLetterBtn" data-id="${r.id}" data-date="${effectiveDate}">Conceptbrief</button>`:''}</div></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="8">Geen actieve contracten gevonden.</td></tr>';
+
+  if(!rentIncreaseSetupReady){
+    overview.insertAdjacentHTML('afterbegin','<div class="importNotice warning"><strong>Eenmalige Supabase-instelling nodig</strong><span>Voer eerst het meegeleverde SQL-bestand uit. Daarna kunnen concepten en huurhistorie veilig worden opgeslagen.</span></div>');
+  }
+}
+
+function openRentIncreaseModal(propertyId,effectiveDate){
+  const r=getPropertyById(propertyId);
+  if(!r) return;
+  const targetDate=effectiveDate||rentIncreaseEffectiveDate(r);
+  const periods=targetDate?rentReferencePeriods(targetDate):{newDate:null,oldDate:null};
+  const proposal=targetDate?proposalFor(r.contract?.id,targetDate):null;
+  const oldCpi=proposal?.old_index??cbsIndexCache.values.get(monthKeyFromIso(periods.oldDate))?.value??'';
+  const newCpi=proposal?.new_index??cbsIndexCache.values.get(monthKeyFromIso(periods.newDate))?.value??'';
+  activeRentContext={r,effectiveDate:targetDate,periods,proposal};
+
+  el('rentProposalId').value=proposal?.id||'';
+  el('rentPropertyId').value=r.id;
+  el('rentContractId').value=r.contract?.id||'';
+  el('rentIncreaseModalTitle').textContent=`Huurverhoging · ${r.object}`;
+  el('rentIncreaseModalMeta').textContent=`${r.huurder} · ${[r.straatnaam,r.huisnummer,r.stad].filter(Boolean).join(' ')}`;
+  el('rentCurrentRent').textContent=euro2(r.huur_pm);
+  el('rentServiceCosts').textContent=euro2(r.servicekosten);
+  el('rentEffectiveDate').value=targetDate||'';
+  el('rentProposalStatus').value=proposal?.status==='Goedgekeurd'?'Goedgekeurd':'Concept';
+  el('rentOldPeriod').value=longMonthYear(periods.oldDate);
+  el('rentNewPeriod').value=longMonthYear(periods.newDate);
+  el('rentOldIndex').value=oldCpi;
+  el('rentNewIndex').value=newCpi;
+  el('rentFinalRent').value=proposal?.final_rent??'';
+  el('rentFinalRent').dataset.autoCalculated=proposal?'false':'true';
+  el('rentOverrideReason').value=proposal?.override_reason||'';
+  el('rentNotes').value=proposal?.notes||'';
+  el('rentIncreaseMessage').textContent='';
+  updateRentModalCalculation();
+  updateRentApplyButton();
+
+  const cbsWarning=el('rentCbsWarning');
+  const newEntry=cbsIndexCache.values.get(monthKeyFromIso(periods.newDate));
+  const oldEntry=cbsIndexCache.values.get(monthKeyFromIso(periods.oldDate));
+  const warnings=[];
+  if(!newEntry||!oldEntry) warnings.push('Een of beide CBS-indexcijfers zijn nog niet beschikbaar. Vul ze alleen handmatig in nadat je ze in StatLine hebt gecontroleerd.');
+  if(newEntry?.provisional||oldEntry?.provisional) warnings.push('Minimaal één gebruikt CBS-cijfer is voorlopig. Controleer dit vóór goedkeuring.');
+  cbsWarning.textContent=warnings.join(' ');
+  cbsWarning.classList.toggle('hidden',!warnings.length);
+  el('rentIncreaseModal').classList.remove('hidden');
+}
+
+function closeRentIncreaseModal(){
+  el('rentIncreaseModal').classList.add('hidden');
+  activeRentContext=null;
+}
+
+function updateRentModalCalculation(){
+  if(!activeRentContext) return;
+  const oldIndex=Number(el('rentOldIndex').value);
+  const newIndex=Number(el('rentNewIndex').value);
+  const calculated=calculateRentValues(activeRentContext.r.huur_pm,oldIndex,newIndex);
+  el('rentCalculatedPercentage').textContent=calculated.percentage===null?'-':`${calculated.percentage.toFixed(2).replace('.',',')}%`;
+  el('rentCalculatedRent').textContent=calculated.rent===null?'-':euro2(calculated.rent);
+  el('rentCalculatedRent').dataset.value=calculated.rent??'';
+  if(calculated.rent!==null&&(!el('rentFinalRent').value||el('rentFinalRent').dataset.autoCalculated==='true')){
+    el('rentFinalRent').value=calculated.rent.toFixed(2);
+    el('rentFinalRent').dataset.autoCalculated='true';
+  }
+}
+
+function updateRentApplyButton(){
+  const button=el('applyRentIncreaseBtn');
+  const proposalId=el('rentProposalId').value;
+  const approved=el('rentProposalStatus').value==='Goedgekeurd';
+  const processed=activeRentContext?.proposal?.status==='Verwerkt';
+  button.classList.toggle('hidden',!proposalId||processed);
+  button.disabled=!approved;
+  button.title=approved?'':'Zet de status eerst op Goedgekeurd.';
+}
+
+function rentProposalPayload(){
+  if(!activeRentContext) throw new Error('Geen huurverhoging geselecteerd.');
+  const oldIndex=Number(el('rentOldIndex').value);
+  const newIndex=Number(el('rentNewIndex').value);
+  const finalRent=Number(el('rentFinalRent').value);
+  if(!Number.isFinite(oldIndex)||oldIndex<=0||!Number.isFinite(newIndex)||newIndex<=0) throw new Error('Vul geldige oude en nieuwe CPI-indexcijfers in.');
+  if(!Number.isFinite(finalRent)||finalRent<0) throw new Error('Vul een geldige definitieve maandhuur in.');
+  const calculated=calculateRentValues(activeRentContext.r.huur_pm,oldIndex,newIndex);
+  const reason=clean(el('rentOverrideReason').value);
+  if(calculated.rent!==null&&Math.abs(finalRent-calculated.rent)>0.01&&!reason){
+    throw new Error('Vul een reden in wanneer de definitieve huur afwijkt van de automatische berekening.');
+  }
+  const effectiveDate=el('rentEffectiveDate').value;
+  const periods=rentReferencePeriods(effectiveDate);
+  const oldEntry=cbsIndexCache.values.get(monthKeyFromIso(periods.oldDate));
+  const newEntry=cbsIndexCache.values.get(monthKeyFromIso(periods.newDate));
+  return {
+    id:el('rentProposalId').value||undefined,
+    property_id:activeRentContext.r.id,
+    contract_id:activeRentContext.r.contract.id,
+    effective_date:effectiveDate,
+    current_rent:Number(activeRentContext.r.huur_pm||0),
+    service_costs:Number(activeRentContext.r.servicekosten||0),
+    old_period:monthKeyFromIso(periods.oldDate),
+    new_period:monthKeyFromIso(periods.newDate),
+    old_index:oldIndex,
+    new_index:newIndex,
+    calculated_percentage:calculated.percentage,
+    calculated_rent:calculated.rent,
+    final_rent:finalRent,
+    override_reason:reason||null,
+    notes:clean(el('rentNotes').value)||null,
+    status:el('rentProposalStatus').value,
+    cbs_table:CBS_TABLE_ID,
+    cbs_measure:'CPI',
+    cbs_category:'000000 Alle bestedingen',
+    cbs_is_provisional:Boolean(oldEntry?.provisional||newEntry?.provisional),
+    updated_at:new Date().toISOString()
+  };
+}
+
+async function persistRentProposal(){
+  if(!rentIncreaseSetupReady) throw new Error('Voer eerst het meegeleverde Supabase SQL-bestand uit.');
+  const payload=rentProposalPayload();
+  delete payload.id;
+  const result=await sb.from('rent_increase_proposals').upsert(payload,{onConflict:'contract_id,effective_date'}).select().single();
+  if(result.error) throw result.error;
+  const index=rawRentIncreaseProposals.findIndex(item=>item.id===result.data.id||(
+    item.contract_id===result.data.contract_id&&item.effective_date===result.data.effective_date
+  ));
+  if(index>=0) rawRentIncreaseProposals[index]=result.data; else rawRentIncreaseProposals.push(result.data);
+  activeRentContext.proposal=result.data;
+  el('rentProposalId').value=result.data.id;
+  updateRentApplyButton();
+  return result.data;
+}
+
+async function saveRentProposal(e){
+  e?.preventDefault();
+  const message=el('rentIncreaseMessage');
+  message.textContent='Concept wordt opgeslagen...';
+  try{
+    await persistRentProposal();
+    message.textContent='Concept opgeslagen. Verzenden gebeurt niet automatisch.';
+    renderFinancialOverview(filtered());
+  }catch(error){
+    console.error(error);
+    message.textContent='Opslaan mislukt: '+error.message;
+  }
+}
+
+function proposalLetterData(){
+  const payload=rentProposalPayload();
+  return {...payload,r:activeRentContext.r};
+}
+
+function createRentLetterHtml(data){
+  const r=data.r;
+  const percentage=Number(data.calculated_percentage||0).toFixed(2).replace('.',',');
+  const effectiveLong=new Intl.DateTimeFormat('nl-NL',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${data.effective_date}T00:00:00Z`));
+  const oldPeriod=longMonthYear(`${data.old_period}-01`);
+  const newPeriod=longMonthYear(`${data.new_period}-01`);
+  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>Concept huurverhoging ${escHtml(r.object)}</title><style>
+    body{font-family:Arial,sans-serif;color:#111;max-width:760px;margin:40px auto;padding:0 28px;line-height:1.55}h1{font-size:22px;margin:0 0 4px}.muted{color:#555}.box{background:#f5f7fa;border:1px solid #d9e0e8;padding:16px;margin:22px 0}.row{display:flex;justify-content:space-between;gap:20px;padding:5px 0}.notice{padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;margin-bottom:22px}.print{margin-bottom:20px;padding:10px 14px;background:#172033;color:white;border:0;border-radius:8px;cursor:pointer}@media print{.print,.notice{display:none}body{margin:0;max-width:none}}</style></head><body>
+    <button class="print" onclick="window.print()">Afdrukken / opslaan als PDF</button>
+    <div class="notice"><strong>Concept:</strong> controleer de berekening en brieftekst. Deze brief is niet automatisch verzonden.</div>
+    <h1>${escHtml(branding.company_name)}</h1><p class="muted">${escHtml(branding.dashboard_name)}</p>
+    <p>${escHtml(r.huurder)}<br>${escHtml([r.straatnaam,r.huisnummer,r.stad].filter(Boolean).join(' '))}</p>
+    <p><strong>Betreft: huurprijsaanpassing ${escHtml(r.object)}</strong></p>
+    <p>Geachte heer/mevrouw,</p>
+    <p>Hierbij informeren wij u over de jaarlijkse aanpassing van de huurprijs van het gehuurde object. De aanpassing gaat in op <strong>${effectiveLong}</strong>.</p>
+    <p>De berekening is gebaseerd op de consumentenprijsindex (CPI), reeks 2025=100, van het CBS, tabel 86141NED, categorie 000000 Alle bestedingen.</p>
+    <div class="box">
+      <div class="row"><span>Huidige maandhuur exclusief btw</span><strong>${euro2(data.current_rent)}</strong></div>
+      <div class="row"><span>CPI ${oldPeriod}</span><strong>${String(data.old_index).replace('.',',')}</strong></div>
+      <div class="row"><span>CPI ${newPeriod}</span><strong>${String(data.new_index).replace('.',',')}</strong></div>
+      <div class="row"><span>Berekende verhoging</span><strong>${percentage}%</strong></div>
+      <div class="row"><span>Nieuwe maandhuur exclusief btw</span><strong>${euro2(data.final_rent)}</strong></div>
+      <div class="row"><span>Servicekosten</span><strong>${euro2(data.service_costs)}</strong></div>
+    </div>
+    <p>De berekening luidt: ${String(data.new_index).replace('.',',')} ÷ ${String(data.old_index).replace('.',',')} × ${euro2(data.current_rent)} = <strong>${euro2(data.final_rent)}</strong>.</p>
+    <p>Wij verzoeken u bij toekomstige betalingen rekening te houden met het nieuwe huurbedrag.</p>
+    <p>Met vriendelijke groet,</p><p><strong>${escHtml(branding.company_name)}</strong></p>
+  </body></html>`;
+}
+
+function openRentConceptLetter(){
+  try{
+    const data=proposalLetterData();
+    const popup=window.open('','_blank');
+    if(!popup) throw new Error('De browser blokkeert het nieuwe venster. Sta pop-ups toe voor dit dashboard.');
+    popup.document.open();
+    popup.document.write(createRentLetterHtml(data));
+    popup.document.close();
+  }catch(error){
+    el('rentIncreaseMessage').textContent='Conceptbrief kan niet worden gemaakt: '+error.message;
+  }
+}
+
+async function applyRentIncrease(){
+  const message=el('rentIncreaseMessage');
+  if(el('rentProposalStatus').value!=='Goedgekeurd'){
+    message.textContent='Zet de status eerst op Goedgekeurd.';
+    return;
+  }
+  if(!confirm('Is de brief gecontroleerd en handmatig verzonden? Daarna wordt de nieuwe huur in het dashboard verwerkt.')) return;
+  message.textContent='Huurverhoging wordt verwerkt...';
+  try{
+    const proposal=await persistRentProposal();
+    const result=await sb.rpc('apply_rent_increase',{p_proposal_id:proposal.id});
+    if(result.error) throw result.error;
+    message.textContent='Huurverhoging verwerkt en opgenomen in de huurhistorie.';
+    await loadData();
+    closeRentIncreaseModal();
+    setPage('financieel','Financieel');
+  }catch(error){
+    console.error(error);
+    message.textContent='Verwerken mislukt: '+error.message;
+  }
+}
+
 const DEFAULT_BRANDING={
   company_name:'Vastgoed',
   dashboard_name:'Dashboard',
@@ -586,6 +1016,11 @@ function setPage(pageId, title){
 
   const objectCsvButton=el('chooseObjectCsvBtn');
   if(objectCsvButton) objectCsvButton.classList.toggle('hidden', pageId!=='objecten');
+
+  if(pageId==='financieel'){
+    renderFinancialOverview(filtered());
+    loadCbsIndexData(false);
+  }
 }
 
 function normalize(properties, contracts, tenants, maintenance, documents=[], history=[]){
@@ -644,12 +1079,29 @@ async function checkSession(){
 }
 async function loadData(){
   try{
-    const [pr,cr,tr,mr,dr,hr]=await Promise.all([sb.from('properties').select('*').order('created_at',{ascending:false}), sb.from('contracts').select('*'), sb.from('tenants').select('*'), sb.from('maintenance').select('*'), sb.from('property_documents').select('*'), sb.from('property_maintenance_history').select('*')]);
+    const [pr,cr,tr,mr,dr,hr,rr]=await Promise.all([
+      sb.from('properties').select('*').order('created_at',{ascending:false}),
+      sb.from('contracts').select('*'),
+      sb.from('tenants').select('*'),
+      sb.from('maintenance').select('*'),
+      sb.from('property_documents').select('*'),
+      sb.from('property_maintenance_history').select('*'),
+      sb.from('rent_increase_proposals').select('*').order('effective_date',{ascending:true})
+    ]);
     [pr,cr,tr,mr,dr,hr].forEach(r=>{if(r.error) throw r.error});
     rawProperties=pr.data||[]; rawContracts=cr.data||[]; rawTenants=tr.data||[]; rawMaintenance=mr.data||[]; rawDocuments=dr.data||[]; rawMaintenanceHistory=hr.data||[];
+    if(rr.error){
+      console.warn('Huurverhogingstabellen nog niet beschikbaar:',rr.error.message);
+      rawRentIncreaseProposals=[];
+      rentIncreaseSetupReady=false;
+    }else{
+      rawRentIncreaseProposals=rr.data||[];
+      rentIncreaseSetupReady=true;
+    }
     vastgoedData=normalize(rawProperties, rawContracts, rawTenants, rawMaintenance, rawDocuments, rawMaintenanceHistory);
     el('statusText').textContent=`Live data uit Supabase. Laatst geladen: ${new Date().toLocaleTimeString('nl-NL')}`;
     render(); if(selectedPropertyId) renderDetail(selectedPropertyId);
+    loadCbsIndexData(false);
   }catch(error){ console.error(error); el('statusText').textContent='Kan data niet laden.'; el('attentionList').innerHTML=`<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`; }
 }
 function filtered(){
@@ -1636,6 +2088,7 @@ function render(){
   el('objectGrid').innerHTML=data.map(r=>`<article class="objectCard">${photoBox(r.foto_url,'objectPhoto',`Foto van ${r.object}`)}<h3>${r.object}</h3><div class="meta">${r.straatnaam} ${r.huisnummer} ${r.stad}</div><div class="row"><span>Huurder</span><strong>${r.huurder}</strong></div><div class="row"><span>Huur p/m</span><strong>${euro(r.huur_pm)}</strong></div><div class="row"><span>Jaarhuur</span><strong>${euro(r.huur_pj)}</strong></div><div class="row"><span>Bruto rendement</span><strong>${r.bruto_rendement===null?'-':pct(r.bruto_rendement)}</strong></div><div class="row"><span>Contract</span>${statusBadge(r.status_contract)}</div><div class="row"><span>Onderhoud</span>${statusBadge(r.status_scope)}</div><button class="smallBtn detailBtn" data-id="${r.id}">Details</button><button class="smallBtn editBtn" data-id="${r.id}">Bewerken</button></article>`).join('') || '<p>Geen objecten gevonden.</p>';
   refreshPhotos();
   renderContractOverview(data);
+  renderFinancialOverview(data);
   el('contractTable').innerHTML=`<tr><th>Object</th><th>Huurder</th><th>Contractstatus</th><th>Startdatum</th><th>Oorspr. einddatum</th><th>Huidige einddatum</th><th>Opzegtermijn</th><th>Uiterste opzegdatum</th><th>Verlenging</th><th>Status opzegmoment</th><th></th></tr>`+data.map(r=>{
     const originalEnd=r.contract_onbepaalde?'Onbepaalde tijd':dateFmt(r.oorspronkelijke_einddatum_contract);
     const renewalCount=r.aantal_verlengingen?`<span class="subtle">${r.aantal_verlengingen}× toegepast</span>`:'';
@@ -1772,7 +2225,30 @@ function init(){
   if(!window.supabase){ el('loginError').textContent='Supabase library niet geladen. Ververs de pagina.'; return; }
   sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   document.querySelectorAll('.nav').forEach(btn=>btn.addEventListener('click',()=>{ selectedPropertyId=null; setPage(btn.dataset.page,btn.dataset.title||btn.textContent.trim()); }));
-  document.body.addEventListener('click', e=>{ const detail=e.target.closest('.detailBtn'); const edit=e.target.closest('.editBtn'); const upload=e.target.closest('.uploadDocBtn'); const openDoc=e.target.closest('.openDocBtn'); const deleteDoc=e.target.closest('.deleteDocBtn'); const addHist=e.target.closest('.addHistBtn'); const deleteHist=e.target.closest('.deleteHistBtn'); const editMaint=e.target.closest('.editMaintBtn'); const newMaint=e.target.closest('.newMaintBtn'); if(detail) renderDetail(detail.dataset.id); if(edit) openEditProperty(edit.dataset.id); if(upload) uploadDocument(upload.dataset.id); if(openDoc) openDocument(openDoc.dataset.path); if(deleteDoc) deleteDocument(deleteDoc.dataset.id, deleteDoc.dataset.path); if(addHist) addMaintenanceHistory(addHist.dataset.id); if(deleteHist) deleteMaintenanceHistory(deleteHist.dataset.id); if(editMaint){ const row=findMaintenanceRowByKey(editMaint.dataset.key); if(row) openMaintenanceModal('edit', row); } if(newMaint) openMaintenanceModal('new', null, newMaint.dataset.id || ''); });
+  document.body.addEventListener('click', e=>{
+    const detail=e.target.closest('.detailBtn');
+    const edit=e.target.closest('.editBtn');
+    const upload=e.target.closest('.uploadDocBtn');
+    const openDoc=e.target.closest('.openDocBtn');
+    const deleteDoc=e.target.closest('.deleteDocBtn');
+    const addHist=e.target.closest('.addHistBtn');
+    const deleteHist=e.target.closest('.deleteHistBtn');
+    const editMaint=e.target.closest('.editMaintBtn');
+    const newMaint=e.target.closest('.newMaintBtn');
+    const rentEdit=e.target.closest('.rentEditBtn');
+    const quickLetter=e.target.closest('.rentQuickLetterBtn');
+    if(detail) renderDetail(detail.dataset.id);
+    if(edit) openEditProperty(edit.dataset.id);
+    if(upload) uploadDocument(upload.dataset.id);
+    if(openDoc) openDocument(openDoc.dataset.path);
+    if(deleteDoc) deleteDocument(deleteDoc.dataset.id, deleteDoc.dataset.path);
+    if(addHist) addMaintenanceHistory(addHist.dataset.id);
+    if(deleteHist) deleteMaintenanceHistory(deleteHist.dataset.id);
+    if(editMaint){ const row=findMaintenanceRowByKey(editMaint.dataset.key); if(row) openMaintenanceModal('edit', row); }
+    if(newMaint) openMaintenanceModal('new', null, newMaint.dataset.id || '');
+    if(rentEdit) openRentIncreaseModal(rentEdit.dataset.id,rentEdit.dataset.date);
+    if(quickLetter){ openRentIncreaseModal(quickLetter.dataset.id,quickLetter.dataset.date); setTimeout(openRentConceptLetter,0); }
+  });
   el('loginBtn').addEventListener('click', async()=>{ el('loginError').textContent='Bezig met inloggen...'; const email=el('email').value.trim(); const password=el('password').value; const {error}=await sb.auth.signInWithPassword({email,password}); if(error){ el('loginError').textContent='Inloggen mislukt: '+error.message; return;} el('loginError').textContent=''; showApp(); await loadBranding(); await loadData(); });
   el('password').addEventListener('keydown', e=>{ if(e.key==='Enter') el('loginBtn').click(); });
   el('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); vastgoedData=[]; await applyBranding(DEFAULT_BRANDING); showLogin(); });
@@ -1798,6 +2274,15 @@ function init(){
   el('contractEndDate')?.addEventListener('change',updateCalculatedNoticeDate);
   el('contractNoticePeriodMonths')?.addEventListener('input',updateCalculatedNoticeDate);
   el('contractNoticeDate')?.addEventListener('input',()=>{ el('contractNoticeDate').dataset.autoCalculated='false'; });
+  el('refreshCbsBtn')?.addEventListener('click',()=>loadCbsIndexData(true));
+  el('closeRentIncreaseModalBtn')?.addEventListener('click',closeRentIncreaseModal);
+  el('rentIncreaseForm')?.addEventListener('submit',saveRentProposal);
+  el('rentOldIndex')?.addEventListener('input',updateRentModalCalculation);
+  el('rentNewIndex')?.addEventListener('input',updateRentModalCalculation);
+  el('rentFinalRent')?.addEventListener('input',()=>{el('rentFinalRent').dataset.autoCalculated='false';});
+  el('rentProposalStatus')?.addEventListener('change',updateRentApplyButton);
+  el('rentLetterBtn')?.addEventListener('click',openRentConceptLetter);
+  el('applyRentIncreaseBtn')?.addEventListener('click',applyRentIncrease);
   el('backToObjectsBtn').addEventListener('click',()=>{ selectedPropertyId=null; setPage('objecten','Objecten'); });
   el('brandingForm').addEventListener('submit',saveBranding);
   el('resetBrandingBtn').addEventListener('click',resetBranding);
