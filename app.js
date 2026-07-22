@@ -1010,21 +1010,40 @@ function isMissingImportValue(value){
   ].includes(marker);
 }
 
+function normalizeDepositInput(value){
+  return clean(value)
+    .normalize('NFKC')
+    .replace(/[\u00A0\u202F]/g,' ')
+    .replace(/[‐‑‒–—―−]/g,'-')
+    .trim();
+}
+
 function isNoDepositValue(value){
-  const raw=clean(value).toLowerCase();
-  const marker=normalizedImportMarker(value);
+  const raw=normalizeDepositInput(value).toLowerCase();
+  const marker=normalizedImportMarker(raw);
 
-  // Lege waarden en alleen een liggend streepje betekenen: geen waarborgsom.
-  if(!raw || /^[\-–—−]+$/.test(raw) || isMissingImportValue(value)) return true;
+  if(!raw || isMissingImportValue(raw)) return true;
 
-  // Accepteer gangbare nulnotaties uit Excel, zoals 0, 0,00, 0.00, € 0 en 0,-.
-  const compact=raw.replace(/\s+/g,'');
-  if(/^(?:€)?0+(?:[.,](?:0+|[-–—−]))?$/.test(compact)) return true;
+  // Alleen een streepje, eventueel met valuta of leestekens, betekent geen waarborgsom.
+  const withoutCurrency=raw.replace(/[€eur\s'"`]/gi,'');
+  if(/^[-.,;:()\/\\]+$/.test(withoutCurrency)) return true;
+
+  // Accepteer nulnotaties uit Excel: 0, 0,00, 0.00, € 0, 0,-, € -, enzovoort.
+  const compact=withoutCurrency.replace(/[^0-9,.-]/g,'');
+  if(/^0+(?:[.,]0*)?(?:,-)?$/.test(compact)) return true;
+  if(/^0+,-$/.test(compact)) return true;
 
   return [
     'geen waarborgsom','geen borg','geen deposito','zonder waarborgsom',
-    'zonder borg','niet van toepassing waarborgsom','niet verschuldigd'
+    'zonder borg','zonder deposito','niet van toepassing waarborgsom',
+    'niet verschuldigd','nihil','nul','zero'
   ].includes(marker);
+}
+
+function parseDepositImportValue(value){
+  if(isNoDepositValue(value)) return 0;
+  const parsed=parseImportNumber(normalizeDepositInput(value),'waarborgsom');
+  return parsed===null ? 0 : parsed;
 }
 
 function isIndefiniteContractValue(value){
@@ -1156,7 +1175,7 @@ function propertyPayloadFromCsv(record, isNew){
     if(!record.present.has(field)) return;
     if(field==='deposit'){
       // Leeg, n.v.t., 0, een liggend streepje of “geen waarborgsom” wordt als € 0 opgeslagen.
-      payload[field]=isNoDepositValue(record[field]) ? 0 : parseImportNumber(record[field],'waarborgsom');
+      payload[field]=parseDepositImportValue(record[field]);
       return;
     }
     payload[field]=parseImportNumber(record[field],field);
