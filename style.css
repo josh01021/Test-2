@@ -1103,3 +1103,13 @@
   .notificationRule{grid-template-columns:1fr}
   .notificationInfoGrid{grid-template-columns:1fr}
 }
+
+/* v37: werkende Outlook-e-mailmeldingen */
+.notificationConnectionStatus .badge.ok{background:#dcfce7;color:#166534}
+.notificationConnectionStatus .badge.danger{background:#fee2e2;color:#991b1b}
+.notificationConnectionStatus:has(.badge.ok){background:#f0fdf4;border-color:#bbf7d0}
+.notificationConnectionStatus:has(.badge.ok) strong{color:#166534}
+.notificationConnectionStatus:has(.badge.danger){background:#fef2f2;border-color:#fecaca}
+.notificationConnectionStatus:has(.badge.danger) strong{color:#991b1b}
+.notificationLogStatus.processing{color:#075985}
+#testNotificationBtn:disabled{opacity:.58;cursor:wait}

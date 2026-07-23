@@ -273,12 +273,12 @@
           <div class="settingsIntro notificationSettingsIntro">
             <div>
               <h2>E-mailmeldingen</h2>
-              <p>Stel ontvangers, verzendtijd en herinneringsmomenten in. In deze veilige eerste fase wordt nog geen e-mail verzonden.</p>
+              <p>Stel ontvangers, verzendtijd en herinneringsmomenten in. Test eerst handmatig en activeer daarna de automatische Outlook-verzending.</p>
             </div>
-            <div class="notificationConnectionStatus">
-              <span class="badge warning">Testmodus</span>
-              <strong>Outlook nog niet gekoppeld</strong>
-              <span>De instellingen en het e-mailvoorbeeld werken al. Automatisch verzenden wordt pas later geactiveerd.</span>
+            <div id="notificationConnectionStatus" class="notificationConnectionStatus">
+              <span id="notificationConnectionBadge" class="badge danger">Niet gekoppeld</span>
+              <strong id="notificationConnectionTitle">E-mailfunctie wordt gecontroleerd</strong>
+              <span id="notificationConnectionText">De verbindingsstatus wordt na het inloggen opgehaald.</span>
             </div>
           </div>
 
@@ -292,7 +292,7 @@
               <label class="notificationToggleField">
                 <span>E-mailmeldingen actief</span>
                 <input id="notificationEmailEnabled" type="checkbox">
-                <small>Dit is de gewenste instelling. Automatische verzending blijft uit tot de Outlook-koppeling is geactiveerd.</small>
+                <small>Automatische verzending vindt alleen plaats wanneer Outlook is gekoppeld en testmodus uitstaat.</small>
               </label>
               <label class="notificationToggleField">
                 <span>Testmodus</span>
@@ -324,8 +324,8 @@
               </label>
               <div class="notificationSenderInfo">
                 <span>Vaste afzender</span>
-                <strong>Nog niet gekoppeld</strong>
-                <small>Het afzenderadres wordt later server-side ingesteld en is niet vrij aanpasbaar in het dashboard.</small>
+                <strong id="notificationSenderAddress">Nog niet gekoppeld</strong>
+                <small>Het afzenderadres staat beveiligd aan de serverkant en is niet vrij aanpasbaar in het dashboard.</small>
               </div>
             </div>
 
@@ -373,7 +373,7 @@
 
             <div class="formActions notificationFormActions">
               <button type="button" id="previewNotificationBtn" class="secondaryBtn">Voorbeeld vernieuwen</button>
-              <button type="button" id="testNotificationBtn" class="secondaryBtn">Testmail controleren</button>
+              <button type="button" id="testNotificationBtn" class="secondaryBtn">Testmail versturen</button>
               <button type="submit">Instellingen opslaan</button>
             </div>
           </form>
@@ -386,7 +386,7 @@
 
           <div class="notificationPreviewPanel">
             <div class="notificationPanelHeader">
-              <div><h3>Voorbeeld van de volgende overzichtsmail</h3><p>Dit voorbeeld wordt lokaal uit de huidige dashboarddata opgebouwd en niet verzonden.</p></div>
+              <div><h3>Voorbeeld van de volgende overzichtsmail</h3><p>Het voorbeeld wordt lokaal opgebouwd. De testknop verstuurt uitsluitend naar het eerste ingestelde e-mailadres.</p></div>
             </div>
             <div id="notificationPreview" class="notificationPreview"></div>
           </div>

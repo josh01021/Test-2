@@ -84,6 +84,7 @@ const DEFAULT_NOTIFICATION_SETTINGS={
 let notificationSettings=JSON.parse(JSON.stringify(DEFAULT_NOTIFICATION_SETTINGS));
 let notificationSettingsReady=true;
 let rawEmailNotificationLogs=[];
+let notificationFunctionStatus={reachable:false,outlookConfigured:false,sender:'',schedulerKeyConfigured:false,error:''};
 let cbsIndexCache={loaded:false,loading:null,loadedAt:null,measureCode:'',categoryCode:'',values:new Map(),error:''};
 let activeRentContext=null;
 let agendaCursor=new Date(new Date().getFullYear(),new Date().getMonth(),1);
@@ -959,11 +960,13 @@ function collectNotificationSettingsForm(){
   });
   const sendTime=el('notificationSendTime').value;
   if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(sendTime)) throw new Error('Vul een geldige verzendtijd in.');
+  const recipients=parseNotificationRecipients(el('notificationRecipients').value);
+  if(el('notificationEmailEnabled').checked&&!recipients.length) throw new Error('Vul minimaal één ontvanger in voordat je e-mailmeldingen activeert.');
   return {
     id:1,
     email_enabled:el('notificationEmailEnabled').checked,
     test_mode:el('notificationTestMode').checked,
-    recipients:parseNotificationRecipients(el('notificationRecipients').value),
+    recipients,
     send_time:sendTime,
     send_days:el('notificationSendDays').value==='daily'?'daily':'weekdays',
     timezone:'Europe/Amsterdam',
@@ -1070,14 +1073,17 @@ function renderNotificationPreview(settingsOverride=null){
   const body=events.length
     ? Object.keys(groups).map(Number).sort((a,b)=>a-b).map(days=>`<div class="notificationEmailGroup"><h5>${escHtml(notificationDayLabel(days))}</h5>${groups[days].map(event=>`<div class="notificationEmailEvent"><strong>${escHtml(event.title)}</strong><span>${escHtml(event.detail||event.object||'')}</span><span>Datum: ${escHtml(dateFmt(event.date))}</span></div>`).join('')}</div>`).join('')
     : `<div class="notificationEmptyPreview">${settings.only_when_events?'Er zijn vandaag geen gebeurtenissen op de ingestelde herinneringsmomenten. Er zou geen e-mail worden verstuurd.':'Er zijn vandaag geen gebeurtenissen; de overzichtsmail zou leeg zijn.'}</div>`;
-  target.innerHTML=`<div class="notificationEmailHeader"><div><strong>Aan:</strong> ${escHtml(recipients)}</div><div><strong>Onderwerp:</strong> ${escHtml(subject)}</div><div><strong>Modus:</strong> ${settings.test_mode?'Testmodus':'Productiemodus gewenst'} · automatisch verzenden nog niet technisch geactiveerd</div></div><div class="notificationEmailBody"><h4>Vastgoedmeldingen</h4>${body}</div>`;
+  const connectionText=notificationFunctionStatus.outlookConfigured
+    ? (settings.test_mode?'Testmodus actief':'Productiemodus')
+    : 'Outlook-koppeling nog niet compleet';
+  target.innerHTML=`<div class="notificationEmailHeader"><div><strong>Aan:</strong> ${escHtml(recipients)}</div><div><strong>Onderwerp:</strong> ${escHtml(subject)}</div><div><strong>Modus:</strong> ${escHtml(connectionText)}</div></div><div class="notificationEmailBody"><h4>Vastgoedmeldingen</h4>${body}</div>`;
 
   const next=notificationNextRunDate(settings);
   if(el('notificationNextRun')){
     el('notificationNextRun').textContent=!settings.email_enabled
       ? 'Uitgeschakeld'
       : next
-        ? `${new Intl.DateTimeFormat('nl-NL',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}).format(next)} (na activatie)`
+        ? `${new Intl.DateTimeFormat('nl-NL',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}).format(next)}`
         : 'Nog niet berekend';
   }
 }
@@ -1090,16 +1096,87 @@ function renderNotificationLog(){
     if(el('notificationLastRun')) el('notificationLastRun').textContent='Nog geen verzending';
     return;
   }
-  const statusLabels={sent:'Verzonden',failed:'Mislukt',skipped:'Overgeslagen',test:'Test'};
+  const statusLabels={processing:'Bezig',sent:'Verzonden',failed:'Mislukt',skipped:'Overgeslagen',test:'Test'};
   target.innerHTML=`<div class="notificationLogWrap"><table class="notificationLogTable"><tr><th>Datum</th><th>Ontvanger</th><th>Gebeurtenissen</th><th>Status</th><th>Toelichting</th></tr>${rawEmailNotificationLogs.map(item=>`<tr><td>${escHtml(new Date(item.created_at||item.run_date).toLocaleString('nl-NL'))}</td><td>${escHtml(item.recipient||'-')}</td><td>${Number(item.event_count||0)}</td><td><span class="notificationLogStatus ${escAttr(item.status||'')}">${escHtml(statusLabels[item.status]||item.status||'-')}</span></td><td>${escHtml(item.error_message||item.subject||'-')}</td></tr>`).join('')}</table></div>`;
   const latest=rawEmailNotificationLogs[0];
   if(el('notificationLastRun')) el('notificationLastRun').textContent=`${new Date(latest.created_at||latest.run_date).toLocaleString('nl-NL')} · ${statusLabels[latest.status]||latest.status}`;
+}
+
+function renderNotificationConnectionStatus(){
+  const wrapper=el('notificationConnectionStatus');
+  const badge=el('notificationConnectionBadge');
+  const title=el('notificationConnectionTitle');
+  const text=el('notificationConnectionText');
+  const sender=el('notificationSenderAddress');
+  if(!wrapper||!badge||!title||!text) return;
+
+  badge.classList.remove('ok','warning','danger');
+  if(notificationFunctionStatus.outlookConfigured&&notificationFunctionStatus.schedulerKeyConfigured){
+    badge.classList.add('ok');
+    badge.textContent='Gekoppeld';
+    title.textContent='Outlook en veilige planner zijn ingesteld';
+    text.textContent='Testmails kunnen worden verstuurd. Automatische verzending start zodra testmodus uitstaat en e-mailmeldingen actief zijn.';
+  }else if(notificationFunctionStatus.outlookConfigured){
+    badge.classList.add('warning');
+    badge.textContent='Deels gereed';
+    title.textContent='Outlook is gekoppeld, planner nog niet';
+    text.textContent='Testmails werken. Voer daarna het cron-SQL-bestand uit voor automatische verzending.';
+  }else if(notificationFunctionStatus.reachable){
+    badge.classList.add('warning');
+    badge.textContent='Configuratie nodig';
+    title.textContent='Edge Function actief, Outlook nog niet compleet';
+    text.textContent='Voeg de vier Microsoft-gegevens toe aan Edge Function Secrets.';
+  }else{
+    badge.classList.add('danger');
+    badge.textContent='Niet gekoppeld';
+    title.textContent='E-mailfunctie niet bereikbaar';
+    text.textContent=notificationFunctionStatus.error||'Deploy eerst de meegeleverde Edge Function.';
+  }
+  if(sender) sender.textContent=notificationFunctionStatus.sender||'Nog niet gekoppeld';
+}
+
+async function loadNotificationFunctionStatus(){
+  if(!sb||!el('notificationConnectionStatus')) return;
+  try{
+    const {data,error}=await sb.functions.invoke('send-property-notifications',{body:{mode:'status'}});
+    if(error) throw error;
+    notificationFunctionStatus={
+      reachable:true,
+      outlookConfigured:Boolean(data?.outlookConfigured),
+      sender:data?.sender||'',
+      schedulerKeyConfigured:Boolean(data?.schedulerKeyConfigured),
+      error:''
+    };
+  }catch(error){
+    console.warn('E-mailfunctie status niet beschikbaar:',error.message);
+    notificationFunctionStatus={reachable:false,outlookConfigured:false,sender:'',schedulerKeyConfigured:false,error:'De e-mailfunctie is nog niet gedeployed of niet bereikbaar.'};
+  }
+  renderNotificationConnectionStatus();
+  renderNotificationPreview(notificationSettings);
+}
+
+async function reloadNotificationLogs(){
+  const result=await sb.from('email_notification_log').select('*').order('created_at',{ascending:false}).limit(20);
+  if(result.error) throw result.error;
+  rawEmailNotificationLogs=result.data||[];
+  renderNotificationLog();
+}
+
+async function persistNotificationSettings(payload){
+  if(!notificationSettingsReady) throw new Error('Voer eerst het meegeleverde Supabase SQL-bestand uit.');
+  const {data:sessionData}=await sb.auth.getSession();
+  payload.updated_by=sessionData.session?.user?.id||null;
+  const result=await sb.from('notification_settings').upsert(payload,{onConflict:'id'}).select().single();
+  if(result.error) throw result.error;
+  notificationSettings=normalizeNotificationSettings(result.data);
+  return notificationSettings;
 }
 
 function renderNotificationSettings(){
   if(!el('notificationSettingsForm')) return;
   fillNotificationSettingsForm();
   el('notificationSetupWarning')?.classList.toggle('hidden',notificationSettingsReady);
+  renderNotificationConnectionStatus();
   renderNotificationPreview(notificationSettings);
   renderNotificationLog();
 }
@@ -1109,14 +1186,8 @@ async function saveNotificationSettings(event){
   const message=el('notificationSettingsMessage');
   message.textContent='Instellingen worden opgeslagen...';
   try{
-    if(!notificationSettingsReady) throw new Error('Voer eerst het meegeleverde Supabase SQL-bestand uit.');
-    const payload=collectNotificationSettingsForm();
-    const {data:sessionData}=await sb.auth.getSession();
-    payload.updated_by=sessionData.session?.user?.id||null;
-    const result=await sb.from('notification_settings').upsert(payload,{onConflict:'id'}).select().single();
-    if(result.error) throw result.error;
-    notificationSettings=normalizeNotificationSettings(result.data);
-    message.textContent='Instellingen opgeslagen. Er is nog geen e-mail verzonden.';
+    await persistNotificationSettings(collectNotificationSettingsForm());
+    message.textContent='Instellingen opgeslagen.';
     renderNotificationSettings();
   }catch(error){
     console.error(error);
@@ -1124,15 +1195,35 @@ async function saveNotificationSettings(event){
   }
 }
 
-function checkNotificationTestMail(){
+async function sendNotificationTestMail(){
   const message=el('notificationSettingsMessage');
+  const button=el('testNotificationBtn');
+  message.textContent='Instellingen worden opgeslagen en de testmail wordt voorbereid...';
+  if(button){button.disabled=true;button.textContent='Testmail wordt verstuurd...';}
   try{
     const settings=collectNotificationSettingsForm();
-    renderNotificationPreview(settings);
     if(!settings.recipients.length) throw new Error('Vul eerst minimaal één ontvanger in.');
-    message.textContent='De testgegevens zijn gecontroleerd. Er is niets verzonden; de beveiligde Outlook-koppeling wordt in de volgende stap toegevoegd.';
+    await persistNotificationSettings(settings);
+    renderNotificationPreview(notificationSettings);
+    const {data,error}=await sb.functions.invoke('send-property-notifications',{body:{mode:'test'}});
+    if(error) throw error;
+    if(!data?.ok) throw new Error(data?.error||'De testmail kon niet worden verstuurd.');
+    await reloadNotificationLogs();
+    message.textContent=`Testmail verzonden naar ${data.recipient}. Er zijn ${Number(data.eventCount||0)} gebeurtenis(sen) opgenomen.`;
+    await loadNotificationFunctionStatus();
   }catch(error){
-    message.textContent='Testcontrole niet mogelijk: '+error.message;
+    console.error(error);
+    let detail=error.message||String(error);
+    if(error?.context){
+      try{
+        const payload=await error.context.json();
+        if(payload?.error) detail=payload.error;
+      }catch(_ignored){}
+    }
+    message.textContent='Testmail mislukt: '+detail;
+    try{await reloadNotificationLogs();}catch(_ignored){}
+  }finally{
+    if(button){button.disabled=false;button.textContent='Testmail versturen';}
   }
 }
 
@@ -1815,6 +1906,7 @@ async function loadData(){
     el('statusText').textContent=`Live data uit Supabase. Laatst geladen: ${new Date().toLocaleTimeString('nl-NL')}`;
     render();
     renderNotificationSettings();
+    loadNotificationFunctionStatus();
     if(selectedPropertyId) renderDetail(selectedPropertyId);
     loadCbsIndexData(false);
   }catch(error){ console.error(error); el('statusText').textContent='Kan data niet laden.'; el('attentionList').innerHTML=`<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`; }
@@ -3227,7 +3319,7 @@ function init(){
   ['brandingCompanyName','brandingDashboardName','brandingPrimaryColor','brandingAccentColor'].forEach(id=>el(id).addEventListener('input',previewBrandingForm));
   el('notificationSettingsForm')?.addEventListener('submit',saveNotificationSettings);
   el('previewNotificationBtn')?.addEventListener('click',()=>renderNotificationPreview());
-  el('testNotificationBtn')?.addEventListener('click',checkNotificationTestMail);
+  el('testNotificationBtn')?.addEventListener('click',sendNotificationTestMail);
   el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }
