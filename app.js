@@ -62,6 +62,28 @@ let serviceCostSetupReady=true;
 let activeFinancialTab='rent';
 let serviceCostYear=new Date().getFullYear()-1;
 let activeServiceCostContext=null;
+const DEFAULT_NOTIFICATION_RULES={
+  notice_date:{enabled:true,days:[90,30,14,7,1,0]},
+  contract_end:{enabled:true,days:[90,30,7]},
+  maintenance:{enabled:true,days:[30,7,1,0]},
+  scope_inspection:{enabled:true,days:[90,30,7]},
+  energy_label:{enabled:true,days:[180,90,30,7]},
+  rent_increase:{enabled:true,days:[60,30,7]}
+};
+const DEFAULT_NOTIFICATION_SETTINGS={
+  id:1,
+  email_enabled:false,
+  test_mode:true,
+  recipients:[],
+  send_time:'07:30',
+  send_days:'weekdays',
+  timezone:'Europe/Amsterdam',
+  only_when_events:true,
+  rules:DEFAULT_NOTIFICATION_RULES
+};
+let notificationSettings=JSON.parse(JSON.stringify(DEFAULT_NOTIFICATION_SETTINGS));
+let notificationSettingsReady=true;
+let rawEmailNotificationLogs=[];
 let cbsIndexCache={loaded:false,loading:null,loadedAt:null,measureCode:'',categoryCode:'',values:new Map(),error:''};
 let activeRentContext=null;
 let agendaCursor=new Date(new Date().getFullYear(),new Date().getMonth(),1);
@@ -863,6 +885,257 @@ function openServiceCostLetter(){
   }
 }
 
+
+function cloneNotificationDefaults(){
+  return JSON.parse(JSON.stringify(DEFAULT_NOTIFICATION_SETTINGS));
+}
+
+function normalizeNotificationSettings(row){
+  const defaults=cloneNotificationDefaults();
+  if(!row) return defaults;
+  const rawRules=row.rules&&typeof row.rules==='object'?row.rules:{};
+  const rules={};
+  Object.entries(DEFAULT_NOTIFICATION_RULES).forEach(([key,defaultRule])=>{
+    const source=rawRules[key]&&typeof rawRules[key]==='object'?rawRules[key]:{};
+    const sourceDays=Array.isArray(source.days)?source.days:defaultRule.days;
+    rules[key]={
+      enabled:source.enabled===undefined?defaultRule.enabled:Boolean(source.enabled),
+      days:[...new Set(sourceDays.map(Number).filter(value=>Number.isInteger(value)&&value>=0&&value<=365))].sort((a,b)=>b-a)
+    };
+  });
+  return {
+    ...defaults,
+    ...row,
+    id:1,
+    recipients:Array.isArray(row.recipients)?row.recipients.filter(Boolean):[],
+    send_time:String(row.send_time||defaults.send_time).slice(0,5),
+    send_days:row.send_days==='daily'?'daily':'weekdays',
+    timezone:'Europe/Amsterdam',
+    rules
+  };
+}
+
+function parseNotificationRecipients(value){
+  const recipients=[...new Set(String(value||'').split(/[;,\n]+/).map(item=>item.trim().toLowerCase()).filter(Boolean))];
+  if(recipients.length>10) throw new Error('Vul maximaal 10 ontvangers in.');
+  const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invalid=recipients.filter(email=>!emailPattern.test(email));
+  if(invalid.length) throw new Error(`Ongeldig e-mailadres: ${invalid[0]}`);
+  return recipients;
+}
+
+function fillNotificationSettingsForm(){
+  if(!el('notificationSettingsForm')) return;
+  const settings=normalizeNotificationSettings(notificationSettings);
+  el('notificationEmailEnabled').checked=Boolean(settings.email_enabled);
+  el('notificationTestMode').checked=settings.test_mode!==false;
+  el('notificationRecipients').value=(settings.recipients||[]).join('\n');
+  el('notificationSendTime').value=settings.send_time||'07:30';
+  el('notificationSendDays').value=settings.send_days||'weekdays';
+  el('notificationTimezone').value='Europe/Amsterdam';
+  el('notificationOnlyWhenEvents').checked=settings.only_when_events!==false;
+
+  document.querySelectorAll('[data-notification-rule]').forEach(container=>{
+    const key=container.dataset.notificationRule;
+    const rule=settings.rules?.[key]||DEFAULT_NOTIFICATION_RULES[key]||{enabled:false,days:[]};
+    const enabled=container.querySelector('.notificationRuleEnabled');
+    if(enabled) enabled.checked=Boolean(rule.enabled);
+    container.querySelectorAll('[data-day]').forEach(input=>{
+      input.checked=(rule.days||[]).includes(Number(input.dataset.day));
+    });
+  });
+}
+
+function collectNotificationSettingsForm(){
+  const rules={};
+  document.querySelectorAll('[data-notification-rule]').forEach(container=>{
+    const key=container.dataset.notificationRule;
+    const enabled=Boolean(container.querySelector('.notificationRuleEnabled')?.checked);
+    const days=[...container.querySelectorAll('[data-day]:checked')]
+      .map(input=>Number(input.dataset.day))
+      .filter(value=>Number.isInteger(value)&&value>=0&&value<=365)
+      .sort((a,b)=>b-a);
+    rules[key]={enabled,days:[...new Set(days)]};
+  });
+  const sendTime=el('notificationSendTime').value;
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(sendTime)) throw new Error('Vul een geldige verzendtijd in.');
+  return {
+    id:1,
+    email_enabled:el('notificationEmailEnabled').checked,
+    test_mode:el('notificationTestMode').checked,
+    recipients:parseNotificationRecipients(el('notificationRecipients').value),
+    send_time:sendTime,
+    send_days:el('notificationSendDays').value==='daily'?'daily':'weekdays',
+    timezone:'Europe/Amsterdam',
+    only_when_events:el('notificationOnlyWhenEvents').checked,
+    rules,
+    updated_at:new Date().toISOString()
+  };
+}
+
+function notificationDaysBetween(referenceIso,targetIso){
+  const reference=isoParts(referenceIso);
+  const target=isoParts(targetIso);
+  if(!reference||!target) return null;
+  const from=Date.UTC(reference.year,reference.month-1,reference.day);
+  const to=Date.UTC(target.year,target.month-1,target.day);
+  return Math.round((to-from)/86400000);
+}
+
+function buildEmailNotificationEvents(data,settings,referenceIso=isoToday()){
+  const events=[];
+  const seen=new Set();
+  const add=(event)=>{
+    if(!event.date||!event.rule) return;
+    const rule=settings.rules?.[event.rule];
+    if(!rule?.enabled) return;
+    const days=notificationDaysBetween(referenceIso,event.date);
+    if(days===null||days<0||!(rule.days||[]).includes(days)) return;
+    const key=`${event.rule}|${event.objectId||event.object}|${event.date}|${event.title}`;
+    if(seen.has(key)) return;
+    seen.add(key);
+    events.push({...event,days});
+  };
+
+  data.forEach(r=>{
+    const address=[r.straatnaam,r.huisnummer].filter(Boolean).join(' ');
+    const objectText=[r.object,address].filter(Boolean).join(' · ');
+    if(r.contract?.id&&!r.contract_opgezegd&&!r.contract_onbepaalde&&r.opzegdatum){
+      add({rule:'notice_date',date:r.opzegdatum,title:'Uiterste opzegdatum',object:r.object,objectId:r.id,detail:objectText});
+    }
+    if(r.contract?.id&&!r.contract_opgezegd&&!r.contract_onbepaalde&&r.einddatum_contract){
+      add({rule:'contract_end',date:r.einddatum_contract,title:'Contracteinde',object:r.object,objectId:r.id,detail:objectText});
+    }
+    const scopeDate=r.property?.scope_valid_until||'';
+    if(scopeDate){
+      add({rule:'scope_inspection',date:scopeDate,title:'Scope-inspectie verloopt',object:r.object,objectId:r.id,detail:objectText});
+    }
+    if(r.energielabel_geldig_tot){
+      add({rule:'energy_label',date:r.energielabel_geldig_tot,title:'Energielabel verloopt',object:r.object,objectId:r.id,detail:objectText});
+    }
+    const rentDate=r.contract?.id&&!r.contract_opgezegd?rentIncreaseEffectiveDate(r):null;
+    if(rentDate){
+      add({rule:'rent_increase',date:rentDate,title:'Huurverhoging',object:r.object,objectId:r.id,detail:objectText});
+    }
+  });
+
+  maintenanceSourceRows(data).forEach(row=>{
+    if(!row.planned_date||maintenanceStatusLabel(row.status)==='Afgerond') return;
+    add({
+      rule:'maintenance',
+      date:row.planned_date,
+      title:`Onderhoud: ${row.type||'gepland'}`,
+      object:row.object,
+      objectId:row.objectId,
+      detail:[row.object,row.address].filter(Boolean).join(' · ')
+    });
+  });
+
+  return events.sort((a,b)=>a.days-b.days||a.date.localeCompare(b.date)||a.title.localeCompare(b.title,'nl',{sensitivity:'base'}));
+}
+
+function notificationDayLabel(days){
+  if(days===0) return 'Vandaag';
+  if(days===1) return 'Morgen';
+  return `Over ${days} dagen`;
+}
+
+function notificationNextRunDate(settings){
+  if(!settings.email_enabled) return null;
+  const [hours,minutes]=String(settings.send_time||'07:30').split(':').map(Number);
+  const now=new Date();
+  for(let offset=0;offset<=10;offset++){
+    const candidate=new Date(now.getFullYear(),now.getMonth(),now.getDate()+offset,hours,minutes,0,0);
+    if(settings.send_days==='weekdays'&&[0,6].includes(candidate.getDay())) continue;
+    if(candidate>now) return candidate;
+  }
+  return null;
+}
+
+function renderNotificationPreview(settingsOverride=null){
+  const target=el('notificationPreview');
+  if(!target) return;
+  let settings;
+  try{
+    settings=settingsOverride||collectNotificationSettingsForm();
+  }catch(error){
+    target.innerHTML=`<div class="notificationEmptyPreview">${escHtml(error.message)}</div>`;
+    return;
+  }
+  const events=buildEmailNotificationEvents(vastgoedData,settings);
+  const recipients=settings.recipients.length?settings.recipients.join(', '):'Nog geen ontvanger ingesteld';
+  const subject=`Vastgoedmeldingen – ${new Intl.DateTimeFormat('nl-NL',{day:'numeric',month:'long',year:'numeric'}).format(new Date())}`;
+  const groups={};
+  events.forEach(event=>(groups[event.days]||=[]).push(event));
+  const body=events.length
+    ? Object.keys(groups).map(Number).sort((a,b)=>a-b).map(days=>`<div class="notificationEmailGroup"><h5>${escHtml(notificationDayLabel(days))}</h5>${groups[days].map(event=>`<div class="notificationEmailEvent"><strong>${escHtml(event.title)}</strong><span>${escHtml(event.detail||event.object||'')}</span><span>Datum: ${escHtml(dateFmt(event.date))}</span></div>`).join('')}</div>`).join('')
+    : `<div class="notificationEmptyPreview">${settings.only_when_events?'Er zijn vandaag geen gebeurtenissen op de ingestelde herinneringsmomenten. Er zou geen e-mail worden verstuurd.':'Er zijn vandaag geen gebeurtenissen; de overzichtsmail zou leeg zijn.'}</div>`;
+  target.innerHTML=`<div class="notificationEmailHeader"><div><strong>Aan:</strong> ${escHtml(recipients)}</div><div><strong>Onderwerp:</strong> ${escHtml(subject)}</div><div><strong>Modus:</strong> ${settings.test_mode?'Testmodus':'Productiemodus gewenst'} · automatisch verzenden nog niet technisch geactiveerd</div></div><div class="notificationEmailBody"><h4>Vastgoedmeldingen</h4>${body}</div>`;
+
+  const next=notificationNextRunDate(settings);
+  if(el('notificationNextRun')){
+    el('notificationNextRun').textContent=!settings.email_enabled
+      ? 'Uitgeschakeld'
+      : next
+        ? `${new Intl.DateTimeFormat('nl-NL',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}).format(next)} (na activatie)`
+        : 'Nog niet berekend';
+  }
+}
+
+function renderNotificationLog(){
+  const target=el('notificationLog');
+  if(!target) return;
+  if(!rawEmailNotificationLogs.length){
+    target.innerHTML='<p class="empty">Nog geen verzendingen geregistreerd.</p>';
+    if(el('notificationLastRun')) el('notificationLastRun').textContent='Nog geen verzending';
+    return;
+  }
+  const statusLabels={sent:'Verzonden',failed:'Mislukt',skipped:'Overgeslagen',test:'Test'};
+  target.innerHTML=`<div class="notificationLogWrap"><table class="notificationLogTable"><tr><th>Datum</th><th>Ontvanger</th><th>Gebeurtenissen</th><th>Status</th><th>Toelichting</th></tr>${rawEmailNotificationLogs.map(item=>`<tr><td>${escHtml(new Date(item.created_at||item.run_date).toLocaleString('nl-NL'))}</td><td>${escHtml(item.recipient||'-')}</td><td>${Number(item.event_count||0)}</td><td><span class="notificationLogStatus ${escAttr(item.status||'')}">${escHtml(statusLabels[item.status]||item.status||'-')}</span></td><td>${escHtml(item.error_message||item.subject||'-')}</td></tr>`).join('')}</table></div>`;
+  const latest=rawEmailNotificationLogs[0];
+  if(el('notificationLastRun')) el('notificationLastRun').textContent=`${new Date(latest.created_at||latest.run_date).toLocaleString('nl-NL')} · ${statusLabels[latest.status]||latest.status}`;
+}
+
+function renderNotificationSettings(){
+  if(!el('notificationSettingsForm')) return;
+  fillNotificationSettingsForm();
+  el('notificationSetupWarning')?.classList.toggle('hidden',notificationSettingsReady);
+  renderNotificationPreview(notificationSettings);
+  renderNotificationLog();
+}
+
+async function saveNotificationSettings(event){
+  event.preventDefault();
+  const message=el('notificationSettingsMessage');
+  message.textContent='Instellingen worden opgeslagen...';
+  try{
+    if(!notificationSettingsReady) throw new Error('Voer eerst het meegeleverde Supabase SQL-bestand uit.');
+    const payload=collectNotificationSettingsForm();
+    const {data:sessionData}=await sb.auth.getSession();
+    payload.updated_by=sessionData.session?.user?.id||null;
+    const result=await sb.from('notification_settings').upsert(payload,{onConflict:'id'}).select().single();
+    if(result.error) throw result.error;
+    notificationSettings=normalizeNotificationSettings(result.data);
+    message.textContent='Instellingen opgeslagen. Er is nog geen e-mail verzonden.';
+    renderNotificationSettings();
+  }catch(error){
+    console.error(error);
+    message.textContent='Opslaan mislukt: '+error.message;
+  }
+}
+
+function checkNotificationTestMail(){
+  const message=el('notificationSettingsMessage');
+  try{
+    const settings=collectNotificationSettingsForm();
+    renderNotificationPreview(settings);
+    if(!settings.recipients.length) throw new Error('Vul eerst minimaal één ontvanger in.');
+    message.textContent='De testgegevens zijn gecontroleerd. Er is niets verzonden; de beveiligde Outlook-koppeling wordt in de volgende stap toegevoegd.';
+  }catch(error){
+    message.textContent='Testcontrole niet mogelijk: '+error.message;
+  }
+}
+
 const DEFAULT_BRANDING={
   company_name:'Vastgoed',
   dashboard_name:'Dashboard',
@@ -1494,7 +1767,7 @@ async function checkSession(){
 }
 async function loadData(){
   try{
-    const [pr,cr,tr,mr,dr,hr,rr,sr]=await Promise.all([
+    const [pr,cr,tr,mr,dr,hr,rr,sr,ns,nl]=await Promise.all([
       sb.from('properties').select('*').order('created_at',{ascending:false}),
       sb.from('contracts').select('*'),
       sb.from('tenants').select('*'),
@@ -1502,7 +1775,9 @@ async function loadData(){
       sb.from('property_documents').select('*'),
       sb.from('property_maintenance_history').select('*'),
       sb.from('rent_increase_proposals').select('*').order('effective_date',{ascending:true}),
-      sb.from('service_cost_settlements').select('*').order('settlement_year',{ascending:false})
+      sb.from('service_cost_settlements').select('*').order('settlement_year',{ascending:false}),
+      sb.from('notification_settings').select('*').eq('id',1).maybeSingle(),
+      sb.from('email_notification_log').select('*').order('created_at',{ascending:false}).limit(20)
     ]);
     [pr,cr,tr,mr,dr,hr].forEach(r=>{if(r.error) throw r.error});
     rawProperties=pr.data||[]; rawContracts=cr.data||[]; rawTenants=tr.data||[]; rawMaintenance=mr.data||[]; rawDocuments=dr.data||[]; rawMaintenanceHistory=hr.data||[];
@@ -1522,9 +1797,25 @@ async function loadData(){
       rawServiceCostSettlements=sr.data||[];
       serviceCostSetupReady=true;
     }
+    if(ns.error){
+      console.warn('E-mailinstellingen nog niet beschikbaar:',ns.error.message);
+      notificationSettings=cloneNotificationDefaults();
+      notificationSettingsReady=false;
+    }else{
+      notificationSettings=normalizeNotificationSettings(ns.data);
+      notificationSettingsReady=true;
+    }
+    if(nl.error){
+      console.warn('E-maillogboek nog niet beschikbaar:',nl.error.message);
+      rawEmailNotificationLogs=[];
+    }else{
+      rawEmailNotificationLogs=nl.data||[];
+    }
     vastgoedData=normalize(rawProperties, rawContracts, rawTenants, rawMaintenance, rawDocuments, rawMaintenanceHistory);
     el('statusText').textContent=`Live data uit Supabase. Laatst geladen: ${new Date().toLocaleTimeString('nl-NL')}`;
-    render(); if(selectedPropertyId) renderDetail(selectedPropertyId);
+    render();
+    renderNotificationSettings();
+    if(selectedPropertyId) renderDetail(selectedPropertyId);
     loadCbsIndexData(false);
   }catch(error){ console.error(error); el('statusText').textContent='Kan data niet laden.'; el('attentionList').innerHTML=`<div class="alert danger"><strong>Fout bij laden</strong>${error.message}</div>`; }
 }
@@ -2934,6 +3225,9 @@ function init(){
   el('brandingForm').addEventListener('submit',saveBranding);
   el('resetBrandingBtn').addEventListener('click',resetBranding);
   ['brandingCompanyName','brandingDashboardName','brandingPrimaryColor','brandingAccentColor'].forEach(id=>el(id).addEventListener('input',previewBrandingForm));
+  el('notificationSettingsForm')?.addEventListener('submit',saveNotificationSettings);
+  el('previewNotificationBtn')?.addEventListener('click',()=>renderNotificationPreview());
+  el('testNotificationBtn')?.addEventListener('click',checkNotificationTestMail);
   el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
   checkSession();
 }

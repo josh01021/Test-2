@@ -268,6 +268,134 @@
           </form>
           <p id="brandingMessage" class="formMessage"></p>
         </div>
+
+        <div class="panel settingsPanel notificationSettingsPanel">
+          <div class="settingsIntro notificationSettingsIntro">
+            <div>
+              <h2>E-mailmeldingen</h2>
+              <p>Stel ontvangers, verzendtijd en herinneringsmomenten in. In deze veilige eerste fase wordt nog geen e-mail verzonden.</p>
+            </div>
+            <div class="notificationConnectionStatus">
+              <span class="badge warning">Testmodus</span>
+              <strong>Outlook nog niet gekoppeld</strong>
+              <span>De instellingen en het e-mailvoorbeeld werken al. Automatisch verzenden wordt pas later geactiveerd.</span>
+            </div>
+          </div>
+
+          <div id="notificationSetupWarning" class="importNotice warning hidden">
+            <strong>Eenmalige Supabase-instelling nodig</strong>
+            <span>Voer eerst het meegeleverde SQL-bestand uit. Daarna kunnen de instellingen veilig worden opgeslagen.</span>
+          </div>
+
+          <form id="notificationSettingsForm">
+            <div class="notificationGeneralGrid">
+              <label class="notificationToggleField">
+                <span>E-mailmeldingen actief</span>
+                <input id="notificationEmailEnabled" type="checkbox">
+                <small>Dit is de gewenste instelling. Automatische verzending blijft uit tot de Outlook-koppeling is geactiveerd.</small>
+              </label>
+              <label class="notificationToggleField">
+                <span>Testmodus</span>
+                <input id="notificationTestMode" type="checkbox" checked>
+                <small>Laat testmodus ingeschakeld tijdens de eerste controles.</small>
+              </label>
+              <label class="notificationRecipientsField">Ontvanger(s)
+                <textarea id="notificationRecipients" rows="3" placeholder="beheer@bedrijf.nl&#10;administratie@bedrijf.nl"></textarea>
+                <small>Maximaal 10 adressen, gescheiden met een komma, puntkomma of nieuwe regel.</small>
+              </label>
+              <label>Verzendtijd
+                <input id="notificationSendTime" type="time" value="07:30" required>
+              </label>
+              <label>Verzenddagen
+                <select id="notificationSendDays">
+                  <option value="weekdays">Alleen werkdagen</option>
+                  <option value="daily">Iedere dag</option>
+                </select>
+              </label>
+              <label>Tijdzone
+                <select id="notificationTimezone">
+                  <option value="Europe/Amsterdam">Europa/Amsterdam</option>
+                </select>
+              </label>
+              <label class="notificationToggleField">
+                <span>Alleen mailen als er gebeurtenissen zijn</span>
+                <input id="notificationOnlyWhenEvents" type="checkbox" checked>
+                <small>Voorkomt lege overzichtsmails.</small>
+              </label>
+              <div class="notificationSenderInfo">
+                <span>Vaste afzender</span>
+                <strong>Nog niet gekoppeld</strong>
+                <small>Het afzenderadres wordt later server-side ingesteld en is niet vrij aanpasbaar in het dashboard.</small>
+              </div>
+            </div>
+
+            <h3>Herinneringen per gebeurtenistype</h3>
+            <p class="formHint notificationRuleHint">Kies per type op welke dagen vóór de gebeurtenis deze in de overzichtsmail moet verschijnen. Dag 0 is de datum zelf.</p>
+
+            <div class="notificationRuleList">
+              <div class="notificationRule" data-notification-rule="notice_date">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Uiterste opzegdatum</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="90" checked>90</label><label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="14" checked>14</label><label><input type="checkbox" data-day="7" checked>7</label><label><input type="checkbox" data-day="1" checked>1</label><label><input type="checkbox" data-day="0" checked>0</label>
+                </div>
+              </div>
+              <div class="notificationRule" data-notification-rule="contract_end">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Contracteinde</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="90" checked>90</label><label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="7" checked>7</label><label><input type="checkbox" data-day="0">0</label>
+                </div>
+              </div>
+              <div class="notificationRule" data-notification-rule="maintenance">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Gepland onderhoud</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="7" checked>7</label><label><input type="checkbox" data-day="1" checked>1</label><label><input type="checkbox" data-day="0" checked>0</label>
+                </div>
+              </div>
+              <div class="notificationRule" data-notification-rule="scope_inspection">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Scope-inspectie</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="90" checked>90</label><label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="7" checked>7</label><label><input type="checkbox" data-day="0">0</label>
+                </div>
+              </div>
+              <div class="notificationRule" data-notification-rule="energy_label">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Energielabel</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="180" checked>180</label><label><input type="checkbox" data-day="90" checked>90</label><label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="7" checked>7</label>
+                </div>
+              </div>
+              <div class="notificationRule" data-notification-rule="rent_increase">
+                <label class="notificationRuleTitle"><input class="notificationRuleEnabled" type="checkbox" checked> Huurverhoging</label>
+                <div class="notificationRuleDays">
+                  <label><input type="checkbox" data-day="60" checked>60</label><label><input type="checkbox" data-day="30" checked>30</label><label><input type="checkbox" data-day="7" checked>7</label><label><input type="checkbox" data-day="0">0</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="formActions notificationFormActions">
+              <button type="button" id="previewNotificationBtn" class="secondaryBtn">Voorbeeld vernieuwen</button>
+              <button type="button" id="testNotificationBtn" class="secondaryBtn">Testmail controleren</button>
+              <button type="submit">Instellingen opslaan</button>
+            </div>
+          </form>
+          <p id="notificationSettingsMessage" class="formMessage"></p>
+
+          <div class="notificationInfoGrid">
+            <div class="notificationInfoCard"><span>Volgende geplande moment</span><strong id="notificationNextRun">-</strong></div>
+            <div class="notificationInfoCard"><span>Laatste verzending</span><strong id="notificationLastRun">Nog geen verzending</strong></div>
+          </div>
+
+          <div class="notificationPreviewPanel">
+            <div class="notificationPanelHeader">
+              <div><h3>Voorbeeld van de volgende overzichtsmail</h3><p>Dit voorbeeld wordt lokaal uit de huidige dashboarddata opgebouwd en niet verzonden.</p></div>
+            </div>
+            <div id="notificationPreview" class="notificationPreview"></div>
+          </div>
+
+          <div class="notificationLogPanel">
+            <h3>Verzendgeschiedenis</h3>
+            <div id="notificationLog" class="notificationLog"><p class="empty">Nog geen verzendingen geregistreerd.</p></div>
+          </div>
+        </div>
       </section>
 
     </main>
