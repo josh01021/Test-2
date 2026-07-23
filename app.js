@@ -51,6 +51,137 @@ const isExternalUrl = value => /^https?:\/\//i.test(String(value || ''));
 const escAttr = value => String(value || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const escHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 
+
+/* v38: veilige PWA-installatie voor telefoon en desktop */
+let deferredInstallPrompt=null;
+let pwaRegistration=null;
+let pwaRefreshing=false;
+
+function isPwaStandalone(){
+  return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone===true;
+}
+function isIosDevice(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent||'');
+}
+function isSafariBrowser(){
+  const ua=navigator.userAgent||'';
+  return /safari/i.test(ua) && !/chrome|crios|android|edg|opr|fxios/i.test(ua);
+}
+function setPwaHelp(html=''){
+  const help=el('pwaInstallHelp');
+  if(!help) return;
+  help.innerHTML=html;
+  help.classList.toggle('hidden',!html);
+}
+function setPwaStatus(label,style,title,text,{canInstall=false}={}){
+  const badge=el('pwaStatusBadge');
+  if(badge){
+    badge.textContent=label;
+    badge.className=`badge ${style}`;
+  }
+  if(el('pwaStatusTitle')) el('pwaStatusTitle').textContent=title;
+  if(el('pwaStatusText')) el('pwaStatusText').textContent=text;
+  const headerButton=el('installAppBtn');
+  const settingsButton=el('settingsInstallAppBtn');
+  headerButton?.classList.toggle('hidden',!canInstall);
+  if(settingsButton){
+    settingsButton.classList.toggle('hidden',isPwaStandalone());
+    settingsButton.disabled=!canInstall && !isIosDevice();
+  }
+}
+function updatePwaInstallUi(){
+  if(isPwaStandalone()){
+    setPwaHelp('');
+    setPwaStatus('Geïnstalleerd','ok','De app is geïnstalleerd','Je gebruikt het dashboard als zelfstandige app. Updates worden automatisch klaargezet.');
+    return;
+  }
+  if(deferredInstallPrompt){
+    setPwaHelp('');
+    setPwaStatus('Klaar','ok','De app kan worden geïnstalleerd','Installeer het dashboard op dit apparaat voor een eigen appvenster en snelkoppeling.',{canInstall:true});
+    return;
+  }
+  if(isIosDevice()){
+    setPwaStatus('Handmatig','warning','Installeren via het deelmenu','Open deze pagina in Safari en gebruik het deelmenu om de app op het beginscherm te zetten.',{canInstall:true});
+    return;
+  }
+  setPwaStatus('Browsermenu','warning','Installatie via de browser','Gebruik het installatiesymbool in de adresbalk of kies “App installeren” in het browsermenu. Zodra de browser een directe installatie aanbiedt, verschijnt de knop automatisch.');
+}
+async function requestPwaInstall(){
+  if(isPwaStandalone()){
+    updatePwaInstallUi();
+    return;
+  }
+  if(deferredInstallPrompt){
+    const promptEvent=deferredInstallPrompt;
+    deferredInstallPrompt=null;
+    await promptEvent.prompt();
+    try{ await promptEvent.userChoice; }catch(error){ console.warn('Installatiekeuze kon niet worden gelezen:',error.message); }
+    updatePwaInstallUi();
+    return;
+  }
+  if(isIosDevice()){
+    const safariNote=isSafariBrowser()?'':'Open het dashboard eerst in Safari. ';
+    setPwaHelp(`<strong>Installeren op iPhone of iPad</strong><ol><li>${safariNote}Tik onderin op het deel-symbool.</li><li>Kies <strong>Zet op beginscherm</strong>.</li><li>Bevestig met <strong>Voeg toe</strong>.</li></ol>`);
+    return;
+  }
+  setPwaHelp('<strong>Installeren op computer of Android</strong><p>Kies het installatiesymbool in de adresbalk. Staat dit er niet, open dan het browsermenu en kies <strong>App installeren</strong> of <strong>Toevoegen aan startscherm</strong>.</p>');
+}
+function showPwaUpdate(){
+  el('pwaReloadBtn')?.classList.remove('hidden');
+  el('pwaUpdateToast')?.classList.remove('hidden');
+}
+function activatePwaUpdate(){
+  const waiting=pwaRegistration?.waiting;
+  if(waiting){
+    waiting.postMessage({type:'SKIP_WAITING'});
+  }else{
+    window.location.reload();
+  }
+}
+async function initPwa(){
+  window.addEventListener('beforeinstallprompt',event=>{
+    event.preventDefault();
+    deferredInstallPrompt=event;
+    updatePwaInstallUi();
+  });
+  window.addEventListener('appinstalled',()=>{
+    deferredInstallPrompt=null;
+    setPwaHelp('');
+    updatePwaInstallUi();
+  });
+  window.matchMedia?.('(display-mode: standalone)').addEventListener?.('change',updatePwaInstallUi);
+  updatePwaInstallUi();
+
+  if(!('serviceWorker' in navigator)){
+    setPwaStatus('Niet ondersteund','danger','Deze browser ondersteunt geen app-installatie','Open het dashboard in een recente versie van Edge, Chrome of Safari.');
+    return;
+  }
+  if(location.protocol!=='https:' && location.hostname!=='localhost'){
+    setPwaStatus('HTTPS nodig','danger','Beveiligde verbinding vereist','De app kan alleen via HTTPS worden geïnstalleerd.');
+    return;
+  }
+  try{
+    pwaRegistration=await navigator.serviceWorker.register('/service-worker.js',{scope:'/',updateViaCache:'none'});
+    await pwaRegistration.update();
+    if(pwaRegistration.waiting) showPwaUpdate();
+    pwaRegistration.addEventListener('updatefound',()=>{
+      const worker=pwaRegistration.installing;
+      if(!worker) return;
+      worker.addEventListener('statechange',()=>{
+        if(worker.state==='installed' && navigator.serviceWorker.controller) showPwaUpdate();
+      });
+    });
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(pwaRefreshing) return;
+      pwaRefreshing=true;
+      window.location.reload();
+    });
+  }catch(error){
+    console.error('PWA-serviceworker kon niet worden geregistreerd:',error);
+    setPwaStatus('Niet actief','danger','App-installatie is nog niet actief',`Controleer de deployment van service-worker.js: ${error.message}`);
+  }
+}
+
 const CBS_CPI_BASE='https://datasets.cbs.nl/odata/v1/CBS/86141NED';
 const CBS_TABLE_ID='86141NED';
 const RENT_REFERENCE_OFFSET_MONTHS=4;
@@ -1481,6 +1612,8 @@ async function applyBranding(next={}){
   branding.accent_color=validHex(branding.accent_color,DEFAULT_BRANDING.accent_color);
   document.documentElement.style.setProperty('--brand-primary',branding.primary_color);
   document.documentElement.style.setProperty('--brand-accent',branding.accent_color);
+  const themeMeta=el('themeColorMeta');
+  if(themeMeta) themeMeta.setAttribute('content',branding.primary_color);
   if(el('sidebarCompanyName')) el('sidebarCompanyName').textContent=branding.company_name;
   if(el('sidebarDashboardName')) el('sidebarDashboardName').textContent=branding.dashboard_name;
   if(el('loginCompanyName')) el('loginCompanyName').textContent=`${branding.company_name} ${branding.dashboard_name}`.trim();
@@ -3320,7 +3453,12 @@ function init(){
   el('notificationSettingsForm')?.addEventListener('submit',saveNotificationSettings);
   el('previewNotificationBtn')?.addEventListener('click',()=>renderNotificationPreview());
   el('testNotificationBtn')?.addEventListener('click',sendNotificationTestMail);
+  el('installAppBtn')?.addEventListener('click',requestPwaInstall);
+  el('settingsInstallAppBtn')?.addEventListener('click',requestPwaInstall);
+  el('pwaReloadBtn')?.addEventListener('click',activatePwaUpdate);
+  el('pwaUpdateToastBtn')?.addEventListener('click',activatePwaUpdate);
   el('closeModalBtn').addEventListener('click', closeModal); el('propertyForm').addEventListener('submit', saveProperty); el('deletePropertyBtn').addEventListener('click', deleteProperty); el('closeMaintenanceModalBtn').addEventListener('click', closeMaintenanceModal); el('maintenanceEditForm').addEventListener('submit', saveMaintenanceEdit); el('deleteMaintenanceRowBtn').addEventListener('click', deleteMaintenanceEdit);
+  initPwa();
   checkSession();
 }
 document.addEventListener('DOMContentLoaded', init);

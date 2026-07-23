@@ -2,8 +2,16 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta id="themeColorMeta" name="theme-color" content="#101827">
+  <meta name="application-name" content="Vastgoed Dashboard">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Vastgoed">
   <title id="browserTitle">Vastgoed Dashboard</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link id="faviconLink" rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -83,6 +91,9 @@
           <p id="statusText">Data wordt geladen...</p>
         </div>
         <div class="headerActions">
+          <button id="installAppBtn" class="installAppBtn hidden" type="button" aria-label="Dashboard als app installeren">
+            <span aria-hidden="true">↓</span> App installeren
+          </button>
           <input id="search" placeholder="Zoek object, huurder of status...">
           <button id="newPropertyBtn">+ Object</button>
           <input id="objectCsvFile" class="compactFileInput" type="file" accept=".csv,text/csv">
@@ -235,6 +246,31 @@
       </section>
 
       <section id="instellingen" class="page">
+        <div class="panel settingsPanel pwaSettingsPanel">
+          <div class="settingsIntro pwaSettingsIntro">
+            <div>
+              <h2>App voor telefoon en computer</h2>
+              <p>Installeer het dashboard als app. De vastgoeddata blijft online in Supabase en wordt niet door de app offline opgeslagen.</p>
+            </div>
+            <span id="pwaStatusBadge" class="badge warning">Controleren…</span>
+          </div>
+          <div class="pwaInstallGrid">
+            <div class="pwaInstallInfo">
+              <strong id="pwaStatusTitle">Installatiestatus wordt gecontroleerd</strong>
+              <p id="pwaStatusText">Een moment geduld.</p>
+              <div id="pwaInstallHelp" class="pwaInstallHelp hidden"></div>
+            </div>
+            <div class="pwaInstallActions">
+              <button id="settingsInstallAppBtn" type="button">App installeren</button>
+              <button id="pwaReloadBtn" type="button" class="secondaryBtn hidden">Nieuwe versie laden</button>
+            </div>
+          </div>
+          <div class="pwaSecurityNote">
+            <strong>Veilige werking</strong>
+            <span>De app bewaart alleen de openbare appbestanden lokaal. Vastgoed-, contract-, huurders- en financiële gegevens worden nooit door de service worker gecachet.</span>
+          </div>
+        </div>
+
         <div class="panel settingsPanel">
           <div class="settingsIntro">
             <div>
@@ -603,6 +639,11 @@
       </form>
       <p id="serviceCostModalMessage" class="formMessage"></p>
     </div>
+  </div>
+
+  <div id="pwaUpdateToast" class="pwaUpdateToast hidden" role="status" aria-live="polite">
+    <span>Er staat een nieuwe versie van de app klaar.</span>
+    <button id="pwaUpdateToastBtn" type="button">Bijwerken</button>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
